@@ -109,9 +109,32 @@ and exercises 26 of 27 tools through the full MCP → hub → native-relay →
 extension chain — verified running while a daily Chrome stays connected to the
 same server.
 
-Roadmap ideas: element snapshot diffs / waitFor helpers on top of refs, multi-tab
-session scripting, WebMCP origin-trial support as it rolls out in Chrome, and packaging
-the server as a single distributable for non-developer installs.
+## Roadmap — known gaps & future updates
+
+### Gaps you'd hit in daily automation use
+
+- [ ] **iframes & shadow DOM** — the content script is main-frame only; snapshot/click can't reach into cross-origin iframes or pierce shadow roots (banks, embedded players, many SPAs)
+- [ ] **File upload & downloads** — no `upload_file` tool, no download tracking
+- [ ] **Native dialogs** — `alert`/`confirm`/`prompt` and `beforeunload` aren't auto-handled; a stuck dialog blocks everything
+- [ ] **Window management** — no create/resize/position/maximize window tools
+- [ ] **Coordinate clicking** — no "click at x,y" (needed for canvas/games when refs don't exist)
+- [ ] **Element-state waits** — `wait_for` covers text/selector only; no wait-for-enabled/visible/editable, no network-idle wait
+- [ ] **Cookies/storage view** — the extension could expose `chrome.cookies`, history, bookmarks; none of that is surfaced
+- [ ] **PDF export, touch emulation, clipboard** — not exposed
+
+### Missing to be a product rather than a dev tool
+
+- [ ] **Recorder / codegen** — you can't click around and get a replayable script out
+- [ ] **Flow runner** — no `webmcp run flow.json` with retries/assertions/HTML reports (the REST API example queues in memory only; no persistence)
+- [ ] **Disposable-browser tooling** — the product drives connected browsers but can't launch a fresh isolated profile per job itself (only the E2E harness does, via CDP)
+- [ ] **stdio-only MCP** — no HTTP/SSE transport, so remote agents can't connect across machines; also only one MCP client at a time (the hub-file race documented in USAGE)
+- [ ] **Distribution** — not on npm (`npx webmcp-browser` should be a thing), no packaged installer for non-developers, no CI (`.github/workflows` is empty — no test automation on push), no tags/releases/CHANGELOG
+- [ ] **WebMCP origin-trial support** — track Chrome's native WebMCP rollout (currently the polyfill path is what tests exercise); element snapshot diffs and multi-tab session scripting on top of refs
+
+### Security hardening worth adding
+
+- [ ] **Origin policy layer** — the agent can act on *every* site you're logged into, including your bank; an allow/deny-list (and confirmation gates for submits on sensitive domains) would be the responsible next step
+- [ ] **Audit log** — nothing records what the agent did for later review
 
 ## License
 
