@@ -1,67 +1,74 @@
 # webmcp-tools
 
-A fully featured [MCP](https://modelcontextprotocol.io) server that lets AI agents drive
-**your real Chrome browser** — your actual profile, cookies, logins and tabs. No
-Playwright, no Selenium, no headless browser.
+webmcp-tools is an [MCP](https://modelcontextprotocol.io) server. It gives AI
+agents full control of your real Chrome browser. The agent uses your profile,
+your cookies, your logins, and your open tabs. The project does not use
+Playwright, Selenium, or a headless browser.
 
-It combines two ideas:
+The project has two parts:
 
-1. **Full browser automation** through a Chrome extension + native messaging bridge:
-   tabs, navigation, snapshots, clicks, typing, scrolling, screenshots, JS evaluation,
-   console logs and network capture — executed in your real session.
-2. **[WebMCP](https://webmachinelearning.github.io/webmcp/)**: agents can discover and
-   call structured tools that web pages expose via `document.modelContext` (imperative)
-   and declarative `form[toolname]` — the page-actuation API that replaces brittle
-   simulated clicks when available.
+1. **Browser automation.** A Chrome extension and a native messaging host
+   control your browser. They open tabs, navigate, click, type, scroll, and
+   take screenshots. They also run JavaScript, and read console logs and
+   network traffic.
+2. **WebMCP.** Web pages can expose structured tools through
+   `document.modelContext`. The agent calls these tools with JSON arguments.
+   The agent does not need to simulate clicks. See the
+   [WebMCP proposal](https://webmachinelearning.github.io/webmcp/).
 
-Since Chrome 136, `--remote-debugging-port` is ignored on the default profile, so CDP
-automation can no longer reach your daily browser. The supported path — and the one this
-project takes — is an unpacked extension plus a native messaging host: full
-`chrome.tabs` / `chrome.scripting` / `chrome.debugger` power, attached to the session
-you actually use.
+## Why an extension?
 
-## Highlights
+Chrome 136 and later ignore `--remote-debugging-port` on the default profile.
+Because of this, CDP automation cannot reach your daily browser. This project
+uses the supported method: an unpacked extension plus a native messaging host.
+The extension uses `chrome.tabs`, `chrome.scripting`, and `chrome.debugger`.
+It operates on the browser session that you use.
 
-- **Real session, real logins.** Drives the Chrome you already have open, not a
-  disposable headless instance — no Playwright, no Selenium, no browser download.
-- **WebMCP-aware.** Beyond classic automation, pages can expose typed tools
-  (`search_catalog`, `reserve_table`, …) that agents call with JSON args; a vendored
-  polyfill makes this work on stable Chrome today.
-- **27 tools across the stack.** Tabs, navigation, accessibility-style snapshots,
-  interaction (DOM-synthetic or trusted CDP input), JS evaluation in both worlds,
-  console logs, network capture, screenshots, and WebMCP list/call.
-  Full tour: [`docs/FEATURES.md`](docs/FEATURES.md).
-- **Multiple browsers at once.** Daily Chrome + test profiles connect side by side;
-  every tool can target a specific browser by `instanceId`.
-- **Localhost-only, token-gated bridge.** The hub binds `127.0.0.1`, the native host is
-  pinned to your deterministic extension ID, and nothing leaves the machine.
-- **No build step on the extension side** — a small, readable, dependency-free MV3
-  extension you can audit before loading.
+## Key features
+
+- **Real session.** The agent controls the Chrome window that you already use.
+  It uses your logins. It does not start a second browser.
+- **WebMCP-aware.** Pages can expose typed tools, for example `search_catalog`
+  or `reserve_table`. The agent calls them with JSON arguments. A vendored
+  polyfill adds this function to stable Chrome.
+- **27 tools.** The tools cover tabs, navigation, snapshots, clicks, typing,
+  scrolling, screenshots, JavaScript evaluation, console logs, network capture,
+  and WebMCP. Read the full list in [`docs/FEATURES.md`](docs/FEATURES.md).
+- **Several browsers at once.** Your daily Chrome and your test profiles can
+  connect at the same time. Each tool can select one browser with `instanceId`.
+- **Local bridge only.** The hub listens on `127.0.0.1`. A token protects the
+  connection. Data does not leave your machine.
+- **Readable extension.** The extension uses plain JavaScript. It has no build
+  step and no dependencies. Read the code before you load it.
 
 ## Quickstart
 
-```bash
-npm install && npm --prefix server install
-npm run build
-npm run install-host          # registers the native messaging host
-```
+1. Install the dependencies and build the server:
 
-Then in Chrome: `chrome://extensions` → enable **Developer mode** → **Load unpacked** →
-select the `extension/` folder. Finally point your MCP client at the server:
+   ```bash
+   npm install && npm --prefix server install
+   npm run build
+   npm run install-host
+   ```
 
-```json
-{
-  "mcpServers": {
-    "webmcp-browser": {
-      "command": "node",
-      "args": ["<absolute path>/webmcp-tools/server/dist/index.js"]
-    }
-  }
-}
-```
+2. Open `chrome://extensions` in Chrome.
+3. Turn on **Developer mode**.
+4. Click **Load unpacked**. Select the `extension/` folder of this repository.
+5. Add the server to your MCP client:
 
-Full walkthrough (Claude Desktop / Cursor, troubleshooting, security notes):
-[`docs/USAGE.md`](docs/USAGE.md).
+   ```json
+   {
+     "mcpServers": {
+       "webmcp-browser": {
+         "command": "node",
+         "args": ["<absolute path>/webmcp-tools/server/dist/index.js"]
+       }
+     }
+   }
+   ```
+
+For the full walkthrough, read [`docs/USAGE.md`](docs/USAGE.md). It covers
+Claude Desktop, Cursor, security notes, and troubleshooting.
 
 ## Tools
 
@@ -73,41 +80,43 @@ Full walkthrough (Claude Desktop / Cursor, troubleshooting, security notes):
 - **Console & network** — `get_console_logs`, `get_network_requests`, `stop_network_capture`
 - **WebMCP** — `list_webmcp_tools`, `call_webmcp_tool`
 
-Exact parameter shapes, defaults and result contracts: [`docs/PROTOCOL.md`](docs/PROTOCOL.md).
+For exact parameters, defaults, and result contracts, read
+[`docs/PROTOCOL.md`](docs/PROTOCOL.md).
 
 ## Demos & examples
 
-| Demo | What |
+| Demo | What it shows |
 |---|---|
 | `demos/webmcp-store/index.html` | Imperative WebMCP store (`search_catalog`, `add_to_cart`, `get_cart`) |
 | `demos/declarative-form.html` | Declarative WebMCP (`<form toolname="reserve_table">`) |
-| `demos/automation-test.html` | Deterministic playground for every classic automation tool |
-| `demos/navigation-target.html` | Navigation counterpart page |
+| `demos/automation-test.html` | Test page for every classic automation tool |
+| `demos/navigation-target.html` | Pair page for navigation tests |
 | `demos/shared/webmcp-polyfill.js` | Vendored WebMCP polyfill (Apache-2.0) |
-| `examples/google-search.mjs` | Live search in your real browser: read results, click "Next", screenshot |
+| `examples/google-search.mjs` | Search in your real browser: read results, click "Next", take a screenshot |
+| `examples/google-search-api.mjs` | REST service: `POST /search` controls your Chrome and returns the results |
 
 ## Layout
 
-| Path | What |
+| Path | What it contains |
 |---|---|
-| `extension/` | MV3 Chrome extension (vanilla JS, no build step) |
-| `server/` | MCP server + native relay + hub (TypeScript) |
+| `extension/` | MV3 Chrome extension (plain JavaScript, no build step) |
+| `server/` | MCP server, native relay, and hub (TypeScript) |
 | `installer/` | Native messaging host installers (Windows / macOS / Linux) |
-| `demos/` | WebMCP demo pages + automation test pages |
+| `demos/` | WebMCP demo pages and automation test pages |
 | `examples/` | Runnable example scripts |
-| `docs/` | Architecture, protocol, features, usage guides |
-| `scripts/` | Repo tooling (extension key, icons, E2E runner) |
-| `test/` | E2E tests driving real Chrome through the whole stack |
+| `docs/` | Architecture, protocol, features, and usage guides |
+| `scripts/` | Repository tooling (extension key, icons, E2E runner) |
+| `test/` | E2E test that drives a real Chrome through the full stack |
 
-Architecture and design rationale: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+For the design rationale, read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Status
 
-Working end to end: 44 server unit tests, and a 53-step E2E suite
-(`npm run e2e`) that loads the unpacked extension into a real installed Chrome
-and exercises 26 of 27 tools through the full MCP → hub → native-relay →
-extension chain — verified running while a daily Chrome stays connected to the
-same server.
+The project works end to end. The server has 44 unit tests. The E2E suite has
+53 steps. It loads the unpacked extension into a real installed Chrome. It
+exercises 26 of the 27 tools through the complete chain: MCP client, hub,
+native relay, extension. The suite also runs while a daily Chrome stays
+connected to the same server.
 
 ## Roadmap — known gaps & future updates
 
@@ -140,6 +149,6 @@ same server.
 
 MIT — see [LICENSE](LICENSE). The vendored WebMCP polyfill
 (`demos/shared/webmcp-polyfill.js` and `extension/lib/webmcp-polyfill.js`) is
-© Google LLC under Apache-2.0; its full text ships as
-[LICENSE-APACHE-2.0.txt](LICENSE-APACHE-2.0.txt), with details in
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+© Google LLC under Apache-2.0. The file
+[LICENSE-APACHE-2.0.txt](LICENSE-APACHE-2.0.txt) contains the full license
+text. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists the details.
