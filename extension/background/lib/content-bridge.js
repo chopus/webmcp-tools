@@ -1,0 +1,108 @@
+/**
+ * WebMCP Tools — bridge between the service worker and the content script.
+ *
+ * The content script is declared in the manifest (document_start) but may be
+ * missing in tabs that predate extension install/update; `ensureInjected`
+ * re-injects it with chrome.scripting in that case. The content script
+ * detects double injection via a window flag, so re-injection never clobbers
+ * the existing ref registry.
+ */
+(function (global) {
+  'use strict';
+
+  const NS = (global.WMCP = global.WMCP || {});
+  const U = NS.util;
+
+  const CONTENT_FILES = ['content/content.js'];
+
+  function rawSend(tabId, message) {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      try {
+        chrome.tabs.sendMessage(tabId, message, { frameId: 0 }, (res) => {
+          if (settled) return;
+          settled = true;
+          const lastErr = chrome.runtime.lastError;
+          if (lastErr) {
+            const text = lastErr.message || '';
+            const e = new Error(text || 'could not establish connection');
+            e.noReceiver = /could not establish connection|receiving end does not exist/i.test(text);
+            reject(e);
+          } else {
+            resolve(res);
+          }
+        });
+      } catch (e) {
+        if (!settled) { settled = true; reject(e); }
+      }
+    });
+  }
+
+  function unwrap(res) {
+    if (!res || typeof res !== 'object') {
+      throw U.err('content script returned an invalid response', 'EEXECUTION');
+    }
+    if (res.ok === false) {
+      throw U.err(res.message || 'content script error', res.code || 'EEXECUTION');
+    }
+    return res;
+  }
+
+  async function ping(tabId) {
+    return rawSend(tabId, { type: 'ping' });
+  }
+
+  /** Make sure the content script is alive in the tab's main frame. */
+  async function ensureInjected(tabId) {
+    try {
+      await ping(tabId);
+      return;
+    } catch (e) {
+      if (!e.noReceiver) throw e;
+    }
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId, frameIds: [0] },
+        files: CONTENT_FILES,
+        injectImmediately: true
+      });
+    } catch (e) {
+      throw U.err(
+        `cannot inject content script into tab ${tabId} (${(e && e.message) || e}); ` +
+        'the page may restrict extensions',
+        'EEXECUTION'
+      );
+    }
+    for (let i = 0; i < 20; i++) {
+      await U.sleep(50);
+      try {
+        await ping(tabId);
+        return;
+      } catch (e) {
+        if (!e.noReceiver) throw e;
+      }
+    }
+    throw U.err('content script did not come up after injection', 'EEXECUTION');
+  }
+
+  /**
+   * Send `{type:"<op>", ...}` to the tab's content script and resolve with the
+   * `{ok:true, ...}` payload. On "could not establish connection", injects the
+   * content script once and retries before giving up.
+   */
+  async function askTab(tabId, message) {
+    try {
+      return unwrap(await rawSend(tabId, message));
+    } catch (e) {
+      if (!e || !e.noReceiver) throw e;
+      await ensureInjected(tabId);
+      return unwrap(await rawSend(tabId, message));
+    }
+  }
+
+  NS.contentBridge = {
+    ensureInjected,
+    askTab,
+    ping
+  };
+})(self);
