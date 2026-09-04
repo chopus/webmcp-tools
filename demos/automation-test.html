@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Automation Test Page</title>
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      margin: 0 auto; max-width: 720px; padding: 24px 20px; color: #1c2430;
+      background: #f5f7fa; line-height: 1.55;
+    }
+    h1 { font-size: 1.4rem; margin: 0 0 16px; }
+    section {
+      background: #fff; border: 1px solid #dbe2ea; border-radius: 8px;
+      padding: 14px 18px; margin-bottom: 16px;
+    }
+    h2 { font-size: 1rem; margin: 0 0 10px; color: #34435a; }
+    .display {
+      display: inline-block; min-width: 46px; text-align: center; padding: 4px 10px;
+      background: #eef2f7; border: 1px solid #d4dce6; border-radius: 6px;
+      font-variant-numeric: tabular-nums; font-weight: 700; margin-left: 10px;
+    }
+    button {
+      padding: 8px 16px; border: 0; border-radius: 6px; cursor: pointer;
+      background: #2456a6; color: #fff; font-size: 0.95rem;
+    }
+    button:hover { background: #1d478c; }
+    label { display: block; margin: 10px 0; }
+    input[type="text"], select {
+      padding: 7px 10px; border: 1px solid #b9c4d1; border-radius: 6px;
+      font-size: 0.95rem; background: #fff;
+    }
+    #hover-target {
+      margin-top: 6px; padding: 18px; border: 2px dashed #8fa3bd; border-radius: 8px;
+      text-align: center; font-weight: 600; cursor: default; background: #f8fafc;
+      user-select: none;
+    }
+    .output {
+      margin-top: 8px; padding: 8px 12px; background: #f0f4f9;
+      border-left: 3px solid #2456a6; font-family: ui-monospace, Consolas, monospace;
+      min-height: 20px; word-break: break-all;
+    }
+    .spacer { height: 2600px; }
+    .filler { color: #6a7889; }
+    #bottom-marker {
+      padding: 26px; text-align: center; font-size: 1.5rem; font-weight: 800;
+      letter-spacing: 4px; color: #1c2430; background: #dcead9;
+      border: 2px solid #7ea877; border-radius: 10px;
+    }
+    #json-data {
+      margin-top: 8px; padding: 6px 10px; font-family: ui-monospace, Consolas, monospace;
+      font-size: 0.85rem; background: #f4f1e8; border: 1px dashed #c9c2b2;
+      border-radius: 6px; color: #5c5647;
+    }
+  </style>
+</head>
+<body>
+  <h1>Automation Test Page</h1>
+  <p>
+    Deterministic exercise page for the classic automation tools (click, type,
+    select, hover, scroll, press, screenshot, console, network). Every control
+    below has a stable id and an unambiguous observable outcome.
+  </p>
+
+  <section>
+    <h2>Clicks</h2>
+    <p>
+      <button id="count-button" type="button">Click me</button>
+      count: <span id="count-display" class="display">0</span>
+    </p>
+    <p>
+      <button id="dbl-button" type="button">Double click me</button>
+      dblclicks: <span id="dbl-display" class="display">0</span>
+    </p>
+  </section>
+
+  <section>
+    <h2>Form</h2>
+    <form id="test-form">
+      <label for="name-input">Name</label>
+      <input id="name-input" name="name" type="text" autocomplete="off" placeholder="Type here">
+
+      <label for="fruit-select">Fruit</label>
+      <select id="fruit-select" name="fruit">
+        <option value="apple">apple</option>
+        <option value="banana">banana</option>
+        <option value="cherry">cherry</option>
+      </select>
+      <div class="output" id="select-output">apple</div>
+
+      <label>
+        <input type="checkbox" id="opt-in" name="optin">
+        Opt in
+      </label>
+      <div class="output" id="opt-status">unchecked</div>
+
+      <button type="submit" id="form-submit">Submit</button>
+      <div class="output" id="form-output"></div>
+    </form>
+  </section>
+
+  <section>
+    <h2>Hover</h2>
+    <div id="hover-target">Hover over me</div>
+    <div class="output" id="hover-state">not hovered</div>
+  </section>
+
+  <section>
+    <h2>Console</h2>
+    <p><button id="log-button" type="button">Write console log/warn/error</button></p>
+  </section>
+
+  <section>
+    <h2>Links &amp; data</h2>
+    <p><a id="link-target" href="navigation-target.html">Go to navigation target</a></p>
+    <div id="json-data" data-check="ready">payload-42</div>
+  </section>
+
+  <section class="filler">
+    <h2>Scroll filler</h2>
+    <p>
+      The content below makes the page taller than 3000px so the scroll tool
+      can be exercised. Keep scrolling to reach the bottom marker.
+    </p>
+    <div class="spacer" aria-hidden="true"></div>
+    <p>Paragraph 1 of filler content between the spacer and the marker.</p>
+    <p>Paragraph 2 of filler content between the spacer and the marker.</p>
+    <p>Paragraph 3 of filler content between the spacer and the marker.</p>
+    <p>Paragraph 4 of filler content between the spacer and the marker.</p>
+  </section>
+
+  <div id="bottom-marker">BOTTOM</div>
+
+  <script>
+  (function () {
+    "use strict";
+
+    // --- click / dblclick -------------------------------------------------
+    var count = 0;
+    var countDisplay = document.getElementById("count-display");
+    document.getElementById("count-button").addEventListener("click", function () {
+      count += 1;
+      countDisplay.textContent = String(count);
+    });
+
+    var dblCount = 0;
+    var dblDisplay = document.getElementById("dbl-display");
+    var lastDblBump = 0;
+    function bumpDbl() {
+      // Dedupe within one event burst so counting "dblclick" plus a synthetic
+      // click(detail:2) for the same gesture does not double-increment.
+      var now = Date.now();
+      if (now - lastDblBump < 50) return;
+      lastDblBump = now;
+      dblCount += 1;
+      dblDisplay.textContent = String(dblCount);
+    }
+    var dblButton = document.getElementById("dbl-button");
+    dblButton.addEventListener("dblclick", bumpDbl);
+    dblButton.addEventListener("click", function (e) {
+      if (e.detail >= 2) bumpDbl();
+    });
+
+    // --- form -------------------------------------------------------------
+    var form = document.getElementById("test-form");
+    var nameInput = document.getElementById("name-input");
+    var fruitSelect = document.getElementById("fruit-select");
+    var optIn = document.getElementById("opt-in");
+
+    var selectOutput = document.getElementById("select-output");
+    fruitSelect.addEventListener("change", function () {
+      selectOutput.textContent = fruitSelect.value;
+    });
+
+    var optStatus = document.getElementById("opt-status");
+    optIn.addEventListener("change", function () {
+      optStatus.textContent = optIn.checked ? "checked" : "unchecked";
+    });
+
+    var formOutput = document.getElementById("form-output");
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      formOutput.textContent =
+        "Submitted: " + nameInput.value + " / " + fruitSelect.value + " / " +
+        (optIn.checked ? "yes" : "no");
+    });
+
+    // --- hover ------------------------------------------------------------
+    var hoverTarget = document.getElementById("hover-target");
+    var hoverState = document.getElementById("hover-state");
+    function markHovered() {
+      hoverTarget.textContent = "Hovered!";
+      hoverState.textContent = "Hovered!";
+    }
+    hoverTarget.addEventListener("mouseenter", markHovered);
+    hoverTarget.addEventListener("mouseover", markHovered); // synthetic fallback
+
+    // --- console ----------------------------------------------------------
+    document.getElementById("log-button").addEventListener("click", function () {
+      console.log("test-log");
+      console.warn("test-warn");
+      console.error("test-error");
+    });
+  })();
+  </script>
+</body>
+</html>

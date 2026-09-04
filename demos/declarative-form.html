@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Casa Verde — Reserve a Table (Declarative WebMCP)</title>
+  <!-- WebMCP polyfill FIRST: no-ops when native document.modelContext exists.
+       It discovers declarative form[toolname] tools automatically. -->
+  <script src="shared/webmcp-polyfill.js"></script>
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: Georgia, "Times New Roman", serif;
+      margin: 0 auto; max-width: 620px; padding: 40px 20px 80px;
+      background: #1d2a20; color: #f2ead9; line-height: 1.6;
+    }
+    h1 { font-size: 1.9rem; margin: 0 0 6px; font-weight: normal; letter-spacing: 0.5px; }
+    .subtitle { color: #b8c9b2; font-style: italic; margin: 0 0 30px; }
+    form {
+      background: #f7f2e6; color: #26301f; border-radius: 10px;
+      padding: 26px 28px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    }
+    fieldset { border: 0; padding: 0; margin: 0; }
+    legend { font-family: system-ui, sans-serif; font-size: 0.8rem; text-transform: uppercase;
+             letter-spacing: 1px; color: #6d7a5e; margin-bottom: 14px; }
+    label { display: block; margin-bottom: 16px; font-size: 0.95rem; }
+    input {
+      display: block; width: 100%; margin-top: 5px; padding: 9px 12px;
+      border: 1px solid #b9b09a; border-radius: 6px; font-size: 1rem;
+      font-family: system-ui, sans-serif; background: #fffdf8;
+    }
+    input:focus { outline: 2px solid #4c6b3c; outline-offset: 1px; }
+    button {
+      font-family: system-ui, sans-serif; font-size: 1rem; padding: 11px 26px;
+      background: #3d5a2e; color: #fff; border: 0; border-radius: 7px; cursor: pointer;
+    }
+    button:hover { background: #324c25; }
+    #result {
+      margin-top: 26px; padding: 16px 20px; border-radius: 8px; min-height: 28px;
+      background: #2c3d2a; border: 1px solid #48603f; font-family: system-ui, sans-serif;
+    }
+    #result:empty::before { content: "No reservation yet."; color: #8fa383; font-style: italic; }
+    #result.ok { color: #d9f2c7; }
+    #result.err { color: #f2c7c7; }
+    .note { color: #b8c9b2; font-size: 0.85rem; margin-top: 22px; font-family: system-ui, sans-serif; }
+    code { background: rgba(0, 0, 0, 0.25); padding: 1px 5px; border-radius: 4px; font-size: 0.9em; }
+  </style>
+</head>
+<body>
+  <h1>Casa Verde</h1>
+  <p class="subtitle">Declarative WebMCP demo — the form itself is the tool.</p>
+
+  <!--
+    Declarative WebMCP: no registerTool calls on this page. The form's
+    toolname/tooldescription/toolparamdescription attributes let any WebMCP
+    client (native or polyfill) discover and drive it as the "reserve_table"
+    tool. toolautosubmit lets programmatic callers submit the form.
+  -->
+  <form id="reserve-form" toolname="reserve_table"
+        tooldescription="Reserve a table at the restaurant"
+        toolautosubmit>
+    <fieldset>
+      <legend>Table reservation</legend>
+      <label>Name
+        <input id="name" name="name" type="text" autocomplete="name"
+               toolparamdescription="Full name of the guest"
+               required>
+      </label>
+      <label>Guests
+        <input id="guests" name="guests" type="number" min="1" max="20"
+               toolparamdescription="Number of guests"
+               required>
+      </label>
+      <label>Time
+        <input id="time" name="time" type="time"
+               toolparamdescription="Reservation time (HH:MM)">
+      </label>
+      <button type="submit" id="reserve-submit">Reserve</button>
+    </fieldset>
+  </form>
+
+  <div id="result" class=""></div>
+
+  <p class="note">
+    This page registers no imperative tools. Everything comes from the
+    <code>&lt;form toolname="reserve_table"&gt;</code> markup above, discovered
+    by the WebMCP polyfill (or native WebMCP when available).
+  </p>
+
+  <script>
+  (function () {
+    "use strict";
+
+    var form = document.getElementById("reserve-form");
+    var result = document.getElementById("result");
+
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+
+      var name = form.elements.name.value.trim();
+      var guests = parseInt(form.elements.guests.value, 10);
+      var time = form.elements.time.value || "19:00";
+
+      // Validation
+      if (!name) {
+        show("err", "Please provide a name for the reservation.");
+        respond(e, { ok: false, error: "name is required" });
+        return;
+      }
+      if (!Number.isInteger(guests) || guests < 1) {
+        show("err", "At least one guest is required.");
+        respond(e, { ok: false, error: "guests must be a positive integer" });
+        return;
+      }
+
+      var message = "Reserved " + name + " for " + guests + " at " + time;
+      show("ok", message);
+      respond(e, { ok: true, message: message, name: name, guests: guests, time: time });
+    });
+
+    function show(kind, text) {
+      result.textContent = text;
+      result.className = kind;
+    }
+
+    // Cooperate with WebMCP callers: the polyfill attaches e.respondWith() so
+    // the tool call resolves with a value instead of hanging until timeout.
+    // It decorates this same event object from a listener that runs after
+    // ours, so the check must happen asynchronously.
+    function respond(e, payload) {
+      setTimeout(function () {
+        if (e && typeof e.respondWith === "function") {
+          try { e.respondWith(payload); } catch (err) { /* not fatal */ }
+        }
+      }, 0);
+    }
+  })();
+  </script>
+</body>
+</html>

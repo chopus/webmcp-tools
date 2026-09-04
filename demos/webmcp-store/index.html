@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WebMCP Coffee &amp; Pizza Store</title>
+  <!-- WebMCP polyfill FIRST: no-ops when native document.modelContext exists. -->
+  <script src="../shared/webmcp-polyfill.js"></script>
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      margin: 0 auto; max-width: 780px; padding: 24px 20px 60px;
+      background: #faf7f2; color: #241c15; line-height: 1.5;
+    }
+    h1 { margin: 0 0 4px; font-size: 1.7rem; }
+    .subtitle { color: #6b5c4e; margin: 0 0 22px; }
+    section {
+      background: #fff; border: 1px solid #e5dccf; border-radius: 10px;
+      padding: 16px 18px; margin-bottom: 18px;
+      box-shadow: 0 1px 3px rgba(36, 28, 21, 0.06);
+    }
+    h2 { font-size: 1.05rem; margin: 0 0 12px; color: #4a3826; }
+    .searchbar { display: flex; gap: 8px; }
+    .searchbar input {
+      flex: 1; padding: 9px 12px; border: 1px solid #cbbfae; border-radius: 7px;
+      font-size: 1rem;
+    }
+    .searchbar button, .add-btn {
+      padding: 9px 14px; border: 0; border-radius: 7px; cursor: pointer;
+      background: #5a3c28; color: #fff; font-size: 0.95rem;
+    }
+    .add-btn { padding: 5px 12px; background: #2f7d4f; font-size: 0.85rem; }
+    .add-btn:hover { background: #256b43; }
+    #results { list-style: none; margin: 14px 0 0; padding: 0; }
+    #results li {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      padding: 9px 4px; border-bottom: 1px solid #f0e9dd;
+    }
+    #results li:last-child { border-bottom: 0; }
+    .item-name { font-weight: 600; }
+    .item-tags { color: #8a7a68; font-size: 0.8rem; margin-left: 8px; font-weight: 400; }
+    .item-price { font-variant-numeric: tabular-nums; margin-left: auto; margin-right: 8px; }
+    .cart-summary { display: flex; gap: 18px; font-weight: 600; }
+    .cart-summary span b { color: #5a3c28; }
+    #cart-items { list-style: none; margin: 12px 0 0; padding: 0; }
+    #cart-items li {
+      display: flex; justify-content: space-between; padding: 7px 4px;
+      border-bottom: 1px solid #f0e9dd; font-variant-numeric: tabular-nums;
+    }
+    .empty { color: #8a7a68; font-style: italic; }
+    .webmcp-note { font-size: 0.82rem; color: #6b5c4e; margin-top: 12px; }
+    code { background: #f2ece1; padding: 1px 5px; border-radius: 4px; font-size: 0.9em; }
+  </style>
+</head>
+<body>
+  <h1>WebMCP Coffee &amp; Pizza Store</h1>
+  <p class="subtitle">
+    Imperative WebMCP demo: this page registers <code>search_catalog</code>,
+    <code>add_to_cart</code> and <code>get_cart</code> via
+    <code>document.modelContext.registerTool</code> — agents call the tools, humans
+    use the very same UI below.
+  </p>
+
+  <section>
+    <h2>Search the catalog</h2>
+    <div class="searchbar">
+      <input id="search-input" type="text" placeholder="Search e.g. espresso, pizza, beans..."
+             aria-label="Search catalog">
+      <button id="search-button" type="button">Search</button>
+    </div>
+    <ul id="results" aria-live="polite"></ul>
+  </section>
+
+  <section>
+    <h2>Your cart</h2>
+    <div class="cart-summary">
+      <span>Items: <b id="cart-size">0</b></span>
+      <span>Total: <b id="cart-total">$0.00</b></span>
+    </div>
+    <ul id="cart-items"></ul>
+    <p class="webmcp-note" id="webmcp-status">
+      WebMCP tools registered on this page. Try asking your agent to
+      “search the catalog for espresso and add two to the cart”.
+    </p>
+  </section>
+
+  <script>
+  (function () {
+    "use strict";
+
+    // ---------------------------------------------------------------- state
+    var catalog = [
+      { id: "espresso",        name: "Espresso",              price: 2.50,  tags: ["coffee", "hot"] },
+      { id: "double-espresso", name: "Double Espresso",       price: 3.50,  tags: ["coffee", "hot"] },
+      { id: "flat-white",      name: "Flat White",            price: 4.00,  tags: ["coffee", "milk"] },
+      { id: "cappuccino",      name: "Cappuccino",            price: 4.25,  tags: ["coffee", "milk", "hot"] },
+      { id: "espresso-beans",  name: "Espresso Beans 250g",   price: 12.00, tags: ["beans", "retail", "espresso"] },
+      { id: "cold-brew",       name: "Cold Brew",             price: 4.75,  tags: ["coffee", "cold"] },
+      { id: "margherita",      name: "Pizza Margherita",      price: 9.50,  tags: ["pizza", "food"] },
+      { id: "pepperoni",       name: "Pepperoni Pizza",       price: 10.95, tags: ["pizza", "food"] }
+    ];
+
+    var cart = Object.create(null); // item_id -> quantity
+
+    // Plain handle for classic automation / assertions (MAIN world).
+    window.__store = {
+      catalog: catalog,
+      cart: cart,
+      search: search,
+      addToCart: addToCart,
+      getCart: getCart
+    };
+
+    // ------------------------------------------------------------ core logic
+    // One implementation, three consumers: WebMCP tools, the UI events below,
+    // and window.__store for classic automation. Tool calls therefore visibly
+    // update the same #results / #cart-size / #cart-total the user sees.
+
+    function search(query) {
+      var q = String(query == null ? "" : query).toLowerCase().trim();
+      var matches = catalog.filter(function (item) {
+        if (!q) return true;
+        if (item.name.toLowerCase().indexOf(q) !== -1) return true;
+        if (item.id.indexOf(q) !== -1) return true;
+        return item.tags.some(function (t) { return t.indexOf(q) !== -1; });
+      });
+      var results = matches.map(function (m) {
+        return { id: m.id, name: m.name, price: m.price };
+      });
+      renderResults(results, q);
+      return { results: results };
+    }
+
+    function addToCart(item_id, quantity) {
+      var qty = quantity == null ? 1 : Number(quantity);
+      if (!Number.isInteger(qty) || qty < 1) {
+        return { ok: false, error: "quantity must be a positive integer" };
+      }
+      var item = catalog.find(function (c) { return c.id === item_id; });
+      if (!item) {
+        return { ok: false, error: "Unknown item_id: " + item_id };
+      }
+      cart[item_id] = (cart[item_id] || 0) + qty;
+      renderCart();
+      return { ok: true, cart_size: cartSize() };
+    }
+
+    function getCart() {
+      var items = Object.keys(cart).map(function (item_id) {
+        var it = catalog.find(function (c) { return c.id === item_id; });
+        return { item_id: item_id, name: it.name, quantity: cart[item_id], price: it.price };
+      });
+      var total = items.reduce(function (sum, i) { return sum + i.quantity * i.price; }, 0);
+      total = Math.round(total * 100) / 100;
+      renderCart();
+      return { items: items, total: total };
+    }
+
+    function cartSize() {
+      return Object.keys(cart).reduce(function (n, k) { return n + cart[k]; }, 0);
+    }
+
+    // ------------------------------------------------------------------ UI
+    function money(n) { return "$" + n.toFixed(2); }
+
+    function renderResults(results, q) {
+      var ul = document.getElementById("results");
+      ul.textContent = "";
+      if (!results.length) {
+        var li = document.createElement("li");
+        li.className = "empty";
+        li.textContent = q ? 'No results for "' + q + '".' : "Catalog is empty.";
+        ul.appendChild(li);
+        return;
+      }
+      results.forEach(function (r) {
+        var full = catalog.find(function (c) { return c.id === r.id; });
+        var li = document.createElement("li");
+        li.setAttribute("data-item-id", r.id);
+
+        var label = document.createElement("span");
+        label.className = "item-name";
+        label.textContent = r.name;
+        var tags = document.createElement("span");
+        tags.className = "item-tags";
+        tags.textContent = (full ? full.tags : []).join(", ");
+        label.appendChild(tags);
+
+        var price = document.createElement("span");
+        price.className = "item-price";
+        price.textContent = money(r.price);
+
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "add-btn";
+        btn.textContent = "Add";
+        btn.setAttribute("data-item-id", r.id);
+        btn.addEventListener("click", function () { addToCart(r.id, 1); });
+
+        li.appendChild(label);
+        li.appendChild(price);
+        li.appendChild(btn);
+        ul.appendChild(li);
+      });
+    }
+
+    function renderCart() {
+      var size = cartSize();
+      document.getElementById("cart-size").textContent = String(size);
+      var total = Object.keys(cart).reduce(function (sum, id) {
+        var it = catalog.find(function (c) { return c.id === id; });
+        return sum + cart[id] * it.price;
+      }, 0);
+      document.getElementById("cart-total").textContent = money(Math.round(total * 100) / 100);
+
+      var ul = document.getElementById("cart-items");
+      ul.textContent = "";
+      var ids = Object.keys(cart);
+      if (!ids.length) {
+        var li = document.createElement("li");
+        li.className = "empty";
+        li.textContent = "Cart is empty.";
+        ul.appendChild(li);
+        return;
+      }
+      ids.forEach(function (id) {
+        var it = catalog.find(function (c) { return c.id === id; });
+        var li = document.createElement("li");
+        var left = document.createElement("span");
+        left.textContent = it.name + " x " + cart[id];
+        var right = document.createElement("span");
+        right.textContent = money(cart[id] * it.price);
+        li.appendChild(left);
+        li.appendChild(right);
+        ul.appendChild(li);
+      });
+    }
+
+    document.getElementById("search-button").addEventListener("click", function () {
+      search(document.getElementById("search-input").value);
+    });
+    document.getElementById("search-input").addEventListener("keydown", function (e) {
+      if (e.key === "Enter") search(e.target.value);
+    });
+
+    // ----------------------------------------------- WebMCP tool registration
+    function registerTools() {
+      var mc = document.modelContext;
+      if (!mc) {
+        document.getElementById("webmcp-status").textContent =
+          "document.modelContext unavailable — tools not registered.";
+        return;
+      }
+      var registrations = [
+        {
+          name: "search_catalog",
+          description: "Search the store catalog by item name, id or tag. Returns matching items with their id, name and price.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              query: { type: "string", description: "Search text matched against item names, ids and tags (case-insensitive)." }
+            },
+            required: ["query"]
+          },
+          execute: function (args) {
+            return search(args && args.query);
+          }
+        },
+        {
+          name: "add_to_cart",
+          description: "Add a catalog item to the cart. Use search_catalog first to find item ids.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              item_id: { type: "string", description: "Catalog item id, e.g. \"espresso\"." },
+              quantity: { type: "number", description: "How many to add (default 1)." }
+            },
+            required: ["item_id"]
+          },
+          execute: function (args) {
+            return addToCart(args && args.item_id, args ? args.quantity : undefined);
+          }
+        },
+        {
+          name: "get_cart",
+          description: "Return the current cart contents: items with name, quantity and price, plus the total.",
+          inputSchema: { type: "object", properties: {} },
+          execute: function () {
+            return getCart();
+          }
+        }
+      ];
+
+      registrations.forEach(function (tool) {
+        mc.registerTool(tool).catch(function (err) {
+          console.error("registerTool failed for " + tool.name + ":", err);
+        });
+      });
+
+      document.getElementById("webmcp-status").textContent =
+        "WebMCP tools registered: " +
+        registrations.map(function (t) { return t.name; }).join(", ") + ".";
+    }
+
+    // Initial render (empty query shows the whole catalog).
+    search("");
+    registerTools();
+  })();
+  </script>
+</body>
+</html>
