@@ -7,7 +7,7 @@ Thumbs.db
 .reference/
 test-results/
 coverage/
-extension/key.pem
+key.pem
 installer/*.generated.*
 .env
 

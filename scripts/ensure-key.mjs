@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 /**
- * Generates extension/key.pem if missing (RSA-2048) and prints info:
+ * Generates the repo-root key.pem if missing (RSA-2048) and prints info:
  *   {"keyPath": "...", "extensionId": "abcdefghijklmnop...", "manifestKey": "<base64 DER SPKI>"}
  *
  * The public half (DER SPKI, base64) goes into extension/manifest.json "key" field so
  * the unpacked extension has a deterministic ID; the ID is the first 16 bytes of
  * SHA-256(SPKI) hex-mapped a..p (same algorithm Chrome uses).
  *
- * key.pem is gitignored: the ID is machine-local, and installers re-derive it at
- * install time (installer scripts also call this script).
+ * key.pem lives at the REPO ROOT (not inside extension/) — Chrome warns when a
+ * key file ships inside the extension directory. It is gitignored: installers
+ * re-derive the ID at install time from the committed manifest "key" field.
  */
 import { generateKeyPairSync, createHash } from "node:crypto";
 import { existsSync, writeFileSync, readFileSync, mkdirSync } from "node:fs";
@@ -16,8 +17,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const keyPath = join(root, "extension", "key.pem");
-mkdirSync(dirname(keyPath), { recursive: true });
+const keyPath = join(root, "key.pem");
 
 let privPem;
 if (existsSync(keyPath)) {

@@ -50,8 +50,9 @@ npm run install-host        # registers the native messaging host (HKCU / ~/.con
 `npm run install-host` is an alias of `installer/install-host.ps1` on Windows;
 on macOS/Linux run `sh installer/install-host.sh` instead. The installer:
 
-1. generates `extension/key.pem` if missing (via `scripts/ensure-key.mjs`) so
-   your extension ID is **deterministic**,
+1. generates the repo-root `key.pem` if missing (via `scripts/ensure-key.mjs`);
+   your extension ID is **deterministic** — pinned by the committed `key` field
+   in `extension/manifest.json`, not by the file's presence,
 2. writes the native-messaging host manifest that points at
    `server/bin/webmcp-host.cmd|sh`, which re-launches `server/dist/index.js`
    with `--native-host`,
@@ -269,9 +270,11 @@ to the cart."*
 - **But the extension is full browser control.** Tabs, scripting, debugger —
   the same powers a password manager has. Read `extension/` before loading
   it; it is small, dependency-free and readable in one sitting.
-- **`extension/key.pem` never leaves your machine.** It is gitignored and
+- **`key.pem` (repo root) never leaves your machine.** It is gitignored and
   generated locally by `scripts/ensure-key.mjs`. It only pins your extension
   ID — it is not a credential for anything remote, but do not commit it.
+  (Keep it out of `extension/` itself; Chrome warns when a key file ships
+  inside the extension directory.)
 - **Uninstalling:** remove the extension in `chrome://extensions`, then run
   `npm run uninstall-host` (Windows) or `sh installer/uninstall-host.sh` to
   delete the native host registration. Kill any running MCP server process;
@@ -287,11 +290,13 @@ the extension off/on in `chrome://extensions`). Verify the host with
 `npm run install-host`; check `chrome://extensions` → the extension →
 "service worker" console for native-host errors.
 
-**Extension ID mismatch after regenerating `key.pem`.**
-Deleting `extension/key.pem` changes your extension ID, so the installed
-native host manifest (pinned to the old ID) no longer matches. Re-run
-`npm run install-host` and reload the extension. A Chrome restart may be
-needed for native-host manifest changes to take effect.
+**Extension ID mismatch after changing the manifest `key` field.**
+The extension ID is pinned by the committed `"key"` field in
+`extension/manifest.json`. If you remove that field (or replace it with one
+derived from a freshly generated repo-root `key.pem`), the ID changes and the
+installed native host manifest no longer matches. Re-run `npm run install-host`
+and reload the extension. A Chrome restart may be needed for native-host
+manifest changes to take effect. Deleting `key.pem` alone changes nothing.
 
 **"Specified native messaging host not found" in the service-worker console.**
 Chrome silently treats a host manifest as unfindable if it fails validation.

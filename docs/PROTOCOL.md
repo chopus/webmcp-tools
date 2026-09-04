@@ -51,9 +51,21 @@ Every message is a single JSON object, one per TCP line / native frame:
    `{ "v":1, "kind":"hello", "who":"hub" }`.
 3. The extension (having spawned the relay via `chrome.runtime.connectNative`) then sends:
    `{ "v":1, "kind":"event", "event":"extensionHello",
-      "data": { "extensionVersion":"…", "chromeVersion":"…", "userAgent":"…", "platform":"…" } }`
+      "data": { "instanceId":"<uuid>", "extensionVersion":"…", "chromeVersion":"…", "userAgent":"…", "platform":"…" } }`
    (if this event is missing, the hub's first tool call still works; the event is
    informational and also re-sent on every (re)connect).
+
+**Multiple browsers.** `instanceId` is a UUID the extension stores in
+`chrome.storage.local` — stable per browser profile, different for each browser.
+The hub keeps one connection per `instanceId`:
+
+- Same `instanceId` from a new socket ⇒ the extension reconnected; the stale
+  socket is dropped.
+- Different `instanceId`s coexist (e.g. the user's daily Chrome and a test
+  Chrome). Tool calls without an explicit `instanceId` target the **most
+  recently connected** instance; every MCP tool also accepts an optional
+  `instanceId` parameter to pin a browser, and `get_browser_info` returns
+  `{ …, instanceId, instances: [{ instanceId, … }] }`.
 
 The extension keeps the native port open (keeps the MV3 service worker alive) and
 reconnects with backoff (1s, 2s, 5s, 10s… max 30s) if the relay/server dies.

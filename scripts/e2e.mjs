@@ -261,8 +261,11 @@ function imageContentOf(res) {
 async function call(name, args = {}, opts = {}) {
   const { expectOk = true, timeoutMs = TOOL_CALL_TIMEOUT_MS } = opts;
   if (!mcpClient) throw new Error("MCP client not connected");
+  const finalArgs = ctx.instanceId && args.instanceId === undefined
+    ? { ...args, instanceId: ctx.instanceId }
+    : args;
   const res = await withTimeout(
-    () => mcpClient.callTool({ name, arguments: args }),
+    () => mcpClient.callTool({ name, arguments: finalArgs }),
     timeoutMs,
     `tool ${name}`
   );
@@ -408,7 +411,7 @@ async function cleanup() {
 
 // --------------------------------------------------------------------- main
 
-const ctx = {}; // shared state between steps (tab ids, refs, item ids)
+const ctx = { instanceId: null }; // shared state between steps (browser instance, tab ids, refs, item ids)
 
 async function main() {
   console.log("== webmcp-tools E2E ==");
@@ -474,6 +477,22 @@ async function main() {
     console.log("mcp:       client connected (StdioClientTransport spawn)");
   }
 
+  // 4b — record browsers already connected to the hub (e.g. the user's daily
+  //      Chrome with the extension loaded), so we only ever target OUR instance
+  const preexistingIds = new Set();
+  try {
+    const res = await mcpClient.callTool({ name: "get_browser_info", arguments: {} });
+    if (res && !res.isError) {
+      const p = jsonOf("get_browser_info", res);
+      for (const inst of p.instances ?? []) {
+        if (inst && inst.instanceId) preexistingIds.add(inst.instanceId);
+      }
+    }
+  } catch { /* no extension connected yet — fine */ }
+  if (preexistingIds.size > 0) {
+    console.log(`instances:  ${preexistingIds.size} other browser(s) already connected (tests will pin their own instance)`);
+  }
+
   // 5 — launch Chrome (AFTER the hub is listening, so the extension's native
   //     connect lands on a live hub) ----------------------------------------
   const profileDir = await fsp.mkdtemp(path.join(os.tmpdir(), "webmcp-e2e-profile-"));
@@ -495,9 +514,14 @@ async function main() {
   cdpWs = loaded.ws;
   console.log(`cdp:       extension loaded${loaded.extensionId ? ` (id ${loaded.extensionId})` : ""}`);
 
-  // 7 — wait for the extension to connect through the whole chain ----------
+  // 7 — wait for OUR extension instance to connect through the whole chain --
+  // Other browsers may also be connected (user's daily Chrome). Ours is
+  // identified deterministically: a REAL instanceId (the harness build always
+  // sends one; stale builds only get synthetic conn-N ids) that is new since
+  // the snapshot AND belongs to a browser with a fresh profile (≈1 tab).
   console.log(`waiting up to ${EXTENSION_CONNECT_TIMEOUT_MS / 1000}s for extension ⟶ relay ⟶ hub link...`);
   const connectDeadline = Date.now() + EXTENSION_CONNECT_TIMEOUT_MS;
+  const rejectedIds = new Set();
   let info = null;
   let lastConnectErr = "";
   while (Date.now() < connectDeadline) {
@@ -506,8 +530,37 @@ async function main() {
       if (!res || res.isError) {
         lastConnectErr = res ? textContentOf(res).slice(0, 200) : "empty response";
       } else {
-        info = jsonOf("get_browser_info", res);
-        break;
+        const p = jsonOf("get_browser_info", res);
+        const candidates = (p.instances ?? []).filter(
+          (i) =>
+            i &&
+            i.instanceId &&
+            !preexistingIds.has(i.instanceId) &&
+            !rejectedIds.has(i.instanceId) &&
+            !/^conn-\d+$/.test(i.instanceId)
+        );
+        let pinned = false;
+        for (const cand of candidates) {
+          try {
+            const tabsRes = await mcpClient.callTool({
+              name: "list_tabs",
+              arguments: { instanceId: cand.instanceId },
+            });
+            if (tabsRes && !tabsRes.isError) {
+              const tabs = jsonOf("list_tabs", tabsRes).tabs ?? [];
+              if (Array.isArray(tabs) && tabs.length <= 2) {
+                ctx.instanceId = cand.instanceId;
+                info = { ...cand, instances: p.instances };
+                pinned = true;
+                break;
+              }
+              rejectedIds.add(cand.instanceId); // busy browser — not ours
+            }
+          } catch { /* candidate unusable; try the next */ }
+        }
+        if (pinned) break;
+        lastConnectErr =
+          "bridge is up, but no fresh browser instance with a real instanceId has registered yet";
       }
     } catch (e) {
       lastConnectErr = e && e.message ? e.message : String(e);
@@ -521,7 +574,7 @@ async function main() {
       "and the Chrome extension did not fail to start."
     );
   }
-  console.log(`link:      extension connected (Chrome ${info.chromeVersion}, platform ${info.platform})`);
+  console.log(`link:      extension connected (instance ${ctx.instanceId}, Chrome ${info.chromeVersion}, platform ${info.platform})`);
 
   // 8 — test sequence --------------------------------------------------------
   const autoUrl = `${demoBase}/automation-test.html`;

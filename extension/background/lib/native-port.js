@@ -30,6 +30,23 @@
     }
   }
 
+  /** Stable per-profile id so the hub can tell browser instances apart. */
+  async function getInstanceId() {
+    try {
+      const got = await chrome.storage.local.get('webmcpInstanceId');
+      if (got && typeof got.webmcpInstanceId === 'string' && got.webmcpInstanceId) {
+        return got.webmcpInstanceId;
+      }
+      const id = (self.crypto && self.crypto.randomUUID)
+        ? self.crypto.randomUUID()
+        : 'ext-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+      await chrome.storage.local.set({ webmcpInstanceId: id });
+      return id;
+    } catch (e) {
+      return ''; // hub falls back to a synthetic connection id
+    }
+  }
+
   async function helloData() {
     let chromeVersion = '';
     try {
@@ -48,7 +65,8 @@
       extensionVersion,
       chromeVersion,
       userAgent: navigator.userAgent || '',
-      platform: navigator.platform || ''
+      platform: navigator.platform || '',
+      instanceId: await getInstanceId()
     };
   }
 

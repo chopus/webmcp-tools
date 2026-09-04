@@ -475,14 +475,39 @@ export function createMcpServer(hub: HubApi): McpServer {
   for (const def of TOOL_DEFS) {
     server.registerTool(
       def.name,
-      { description: def.description, inputSchema: def.shape },
+      {
+        description: def.description,
+        inputSchema: {
+          ...def.shape,
+          instanceId: z
+            .string()
+            .optional()
+            .describe(
+              "Target a specific connected browser instance (id from get_browser_info). " +
+                "Defaults to the most recently connected browser — set this when several " +
+                "Chrome instances are connected.",
+            ),
+        },
+      },
       async (rawArgs: Record<string, unknown>): Promise<CallToolResult> => {
         const args = rawArgs ?? {};
         try {
           def.validate?.(args);
           const timeoutMs = clampTimeout(args.timeoutMs, def.timeoutMs);
-          const params = { ...args };
-          const result = (await hub.request(def.name, params, timeoutMs)) as Record<string, unknown>;
+          const { instanceId, ...params } = args;
+          const result = (await hub.request(
+            def.name,
+            params,
+            timeoutMs,
+            typeof instanceId === "string" && instanceId ? instanceId : undefined,
+          )) as Record<string, unknown>;
+          if (def.name === "get_browser_info") {
+            // Augment with multi-instance routing info from the hub.
+            result.instanceId = typeof instanceId === "string" && instanceId
+              ? instanceId
+              : hub.activeInstanceId;
+            result.instances = hub.listInstances();
+          }
           switch (def.format) {
             case "screenshot":
               return screenshotResult(result ?? {}, args);

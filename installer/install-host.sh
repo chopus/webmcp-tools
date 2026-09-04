@@ -28,7 +28,7 @@ if [ ! -f "$REPO_ROOT/server/dist/index.js" ]; then
   echo "  cd server && npm install && npm run build" >&2
 fi
 
-# Derive the deterministic extension id from extension/key.pem.
+# Derive the deterministic extension id (key pinned in manifest; repo-root key.pem).
 KEY_JSON=$(node "$ENSURE_KEY") || { echo "error: ensure-key.mjs failed" >&2; exit 1; }
 EXTENSION_ID=$(printf '%s' "$KEY_JSON" | node -e 'let s="";process.stdin.on("data",d=>{s+=d});process.stdin.on("end",()=>{try{process.stdout.write(String(JSON.parse(s).extensionId))}catch(e){process.exit(1)}})')
 case "$EXTENSION_ID" in

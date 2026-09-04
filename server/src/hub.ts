@@ -29,9 +29,22 @@ export interface ExtensionInfo {
   extensionVersion?: string;
 }
 
+export interface ExtensionInstance extends ExtensionInfo {
+  instanceId: string;
+}
+
 /** The slice of the hub that the MCP layer is allowed to touch. */
 export interface HubApi {
-  request(tool: string, params?: Record<string, unknown>, timeoutMs?: number): Promise<unknown>;
+  request(
+    tool: string,
+    params?: Record<string, unknown>,
+    timeoutMs?: number,
+    instanceId?: string,
+  ): Promise<unknown>;
+  /** All connected browser instances (most recent last). */
+  listInstances(): ExtensionInstance[];
+  /** Instance that tool calls target when no `instanceId` is given. */
+  activeInstanceId: string | null;
 }
 
 export interface HubOptions {
@@ -51,23 +64,44 @@ interface SocketState {
   socket: net.Socket;
   authenticated: boolean;
   decoder: LineDecoder;
+  /** Synthetic (`conn-N`) until the extension's hello provides a real one. */
+  instanceId: string;
+}
+
+interface InstanceEntry {
+  socket: net.Socket;
+  info: ExtensionInfo;
 }
 
 /**
  * TCP hub: listens on 127.0.0.1 (ephemeral port), authenticates native relays
- * via a token in the discovery file, tracks the active extension connection,
- * and routes request/response envelopes by id. Knows nothing about MCP.
+ * via a token in the discovery file, tracks connected extension instances
+ * (one per browser/profile — several may coexist), and routes request/response
+ * envelopes by id. Knows nothing about MCP.
  */
 export class Hub implements HubApi {
   readonly filePath: string;
   readonly token: string;
   port = 0;
-  extensionInfo: ExtensionInfo = {};
-  extensionConnected = false;
+  private connCounter = 0;
+  private activeId: string | null = null;
+
+  get extensionConnected(): boolean {
+    return this.instances.size > 0;
+  }
+
+  get extensionInfo(): ExtensionInfo {
+    const entry = this.activeEntry();
+    return entry ? entry.info : {};
+  }
+
+  get activeInstanceId(): string | null {
+    return this.activeId;
+  }
 
   private server: net.Server | null = null;
   private readonly sockets = new Map<net.Socket, SocketState>();
-  private active: net.Socket | null = null;
+  private readonly instances = new Map<string, InstanceEntry>();
   private nextId = 1;
   private readonly pending = new Map<number, PendingRequest>();
   private readonly logFn: (message: string) => void;
@@ -111,9 +145,16 @@ export class Hub implements HubApi {
     tool: string,
     params: Record<string, unknown> = {},
     timeoutMs = 30000,
+    instanceId?: string,
   ): Promise<unknown> {
-    const socket = this.active;
-    if (!socket || socket.destroyed) {
+    let entry = instanceId ? this.instances.get(instanceId) : this.activeEntry();
+    if (!entry && !instanceId && this.instances.size > 0) {
+      // Default target vanished (e.g. mid-call disconnect): fall back to the
+      // most recently connected instance rather than failing outright.
+      const last = [...this.instances.entries()].pop();
+      entry = last ? last[1] : undefined;
+    }
+    if (!entry || entry.socket.destroyed) {
       return Promise.reject(
         new HubError(
           "the WebMCP Tools Chrome extension is not connected",
@@ -121,6 +162,7 @@ export class Hub implements HubApi {
         ),
       );
     }
+    const socket = entry.socket;
     const id = this.nextId++;
     const envelope = { v: 1, kind: "request" as const, id, tool, params };
     return new Promise<unknown>((resolve, reject) => {
@@ -177,8 +219,8 @@ export class Hub implements HubApi {
       socket.destroy();
     }
     this.sockets.clear();
-    this.active = null;
-    this.extensionConnected = false;
+    this.instances.clear();
+    this.activeId = null;
   }
 
   private handleConnection(socket: net.Socket): void {
@@ -187,7 +229,12 @@ export class Hub implements HubApi {
       return;
     }
     socket.setNoDelay(true);
-    const state: SocketState = { socket, authenticated: false, decoder: new LineDecoder() };
+    const state: SocketState = {
+      socket,
+      authenticated: false,
+      decoder: new LineDecoder(),
+      instanceId: "",
+    };
     this.sockets.set(socket, state);
 
     socket.on("data", (chunk: Buffer) => {
@@ -230,10 +277,22 @@ export class Hub implements HubApi {
 
   private handleClose(socket: net.Socket): void {
     this.sockets.delete(socket);
-    if (this.active === socket) {
-      this.active = null;
-      this.extensionConnected = false;
-      this.logFn("hub: extension disconnected");
+    let removedId: string | null = null;
+    for (const [id, entry] of this.instances) {
+      if (entry.socket === socket) {
+        this.instances.delete(id);
+        removedId = id;
+      }
+    }
+    if (removedId != null) {
+      this.logFn(`hub: instance ${removedId} disconnected`);
+      if (this.activeId === removedId) {
+        const last = [...this.instances.keys()].pop();
+        this.activeId = last ?? null;
+        if (this.activeId != null) {
+          this.logFn(`hub: active instance is now ${this.activeId}`);
+        }
+      }
     }
     for (const [id, pending] of this.pending) {
       if (pending.socket === socket) {
@@ -264,7 +323,8 @@ export class Hub implements HubApi {
         message.token === this.token;
       if (tokenOk) {
         state.authenticated = true;
-        this.activate(socket);
+        state.instanceId = `conn-${++this.connCounter}`;
+        this.registerInstance(state, state.instanceId, {});
         socket.write(JSON.stringify({ v: 1, kind: "hello", who: "hub" }) + "\n");
         this.logFn("hub: relay authenticated");
       } else {
@@ -297,33 +357,58 @@ export class Hub implements HubApi {
 
     if (message.kind === "event" && message.event === "extensionHello") {
       const data = (message.data ?? {}) as Record<string, unknown>;
-      this.extensionInfo = {
+      const info: ExtensionInfo = {
         chromeVersion: str(data.chromeVersion),
         userAgent: str(data.userAgent),
         platform: str(data.platform),
         extensionVersion: str(data.extensionVersion),
       };
-      this.extensionConnected = true;
-      this.activate(socket);
+      const realId = str(data.instanceId);
+      this.registerInstance(state, realId && realId !== state.instanceId ? realId : state.instanceId, info);
       this.logFn(
-        `hub: extension connected (extensionVersion=${
-          this.extensionInfo.extensionVersion ?? "?"
-        }, chrome=${this.extensionInfo.chromeVersion ?? "?"})`,
+        `hub: extension ${state.instanceId} connected (extensionVersion=${
+          info.extensionVersion ?? "?"
+        }, chrome=${info.chromeVersion ?? "?"})`,
       );
       return;
     }
     // Unknown event kinds are ignored.
   }
 
-  /** Newest authenticated socket wins; the previous active one is closed. */
-  private activate(socket: net.Socket): void {
-    if (this.active === socket) return;
-    const previous = this.active;
-    this.active = socket;
-    if (previous && !previous.destroyed) {
-      this.logFn("hub: newer connection authenticated; closing previous connection");
-      previous.destroy();
+  /**
+   * Register a connection under an instance id. Same id from a new socket means
+   * the extension reconnected (stale socket is dropped); different ids coexist
+   * (multiple browsers/profiles). The most recent registration becomes the
+   * default target for tool calls without an explicit instanceId.
+   */
+  private registerInstance(state: SocketState, instanceId: string, info: ExtensionInfo): void {
+    for (const [id, entry] of this.instances) {
+      if (entry.socket === state.socket) this.instances.delete(id);
     }
+    const existing = this.instances.get(instanceId);
+    if (existing && existing.socket !== state.socket && !existing.socket.destroyed) {
+      this.logFn(`hub: instance ${instanceId} reconnected; closing previous connection`);
+      existing.socket.destroy();
+    }
+    this.instances.set(instanceId, { socket: state.socket, info });
+    state.instanceId = instanceId;
+    this.activeId = instanceId;
+  }
+
+  private activeEntry(): InstanceEntry | undefined {
+    if (this.activeId) {
+      const entry = this.instances.get(this.activeId);
+      if (entry && !entry.socket.destroyed) return entry;
+    }
+    const entries = Array.from(this.instances.entries()).filter(([, e]) => !e.socket.destroyed);
+    return entries.length > 0 ? entries[entries.length - 1][1] : undefined;
+  }
+
+  listInstances(): ExtensionInstance[] {
+    return [...this.instances.entries()].map(([instanceId, entry]) => ({
+      instanceId,
+      ...entry.info,
+    }));
   }
 }
 

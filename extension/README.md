@@ -51,12 +51,13 @@ if the MCP server is not running yet it retries with backoff (1s, 2s, 5s,
 
 ## Extension ID is pinned
 
-`manifest.json` contains a `"key"` field generated from `extension/key.pem`
-(run `node scripts/ensure-key.mjs` in the repo root to verify). This pins the
-extension ID to `hfjklocnlekmbgcollomhcploljheghf` regardless of which machine
-loads the folder unpacked, so the native-host manifest's `allowed_origins`
-stays valid. **Do not remove the `key` field or delete `key.pem`** — either
-would change the extension ID and break native messaging.
+`manifest.json` contains a committed `"key"` field (the DER public key). This pins the
+extension ID to `hfjklocnlekmbgcollomhcploljheghf` regardless of which machine loads
+the folder unpacked, so the native-host manifest's `allowed_origins` stays valid.
+The matching private key lives at the **repo root** as `key.pem` (NOT inside this
+directory — Chrome warns when a key file ships inside the extension); regenerate it
+with `node scripts/ensure-key.mjs` if you ever need to repack. **Do not remove the
+manifest `key` field** — that would change the extension ID and break native messaging.
 
 ## Layout
 

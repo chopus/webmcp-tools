@@ -6,7 +6,7 @@
 #
 # What it does:
 #   1. Runs scripts/ensure-key.mjs to derive the deterministic extension ID
-#      from extension/key.pem.
+#      from the deterministic manifest key (repo-root key.pem).
 #   2. Writes installer/com.webmcp.tools.host.generated.json (the native host
 #      manifest) pointing at server/bin/webmcp-host.cmd.
 #   3. Registers the manifest under HKCU (no admin needed).
