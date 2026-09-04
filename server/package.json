@@ -1,0 +1,33 @@
+{
+  "name": "webmcp-browser",
+  "version": "0.1.0",
+  "description": "MCP server + native messaging host for webmcp-tools: drives the user's real Chrome session via a WebMCP-aware extension.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "webmcp-browser": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "files": [
+    "dist",
+    "bin"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.20.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^3.0.0"
+  }
+}
