@@ -1,0 +1,12 @@
+node_modules/
+dist/
+build/
+*.log
+.DS_Store
+Thumbs.db
+.reference/
+test-results/
+coverage/
+extension/key.pem
+installer/*.generated.*
+.env

@@ -1,0 +1,18 @@
+{
+  "name": "webmcp-tools-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Monorepo: MCP server that drives the user's real Chrome session via a WebMCP-aware extension + native messaging bridge.",
+  "scripts": {
+    "build": "npm run build --prefix server",
+    "test": "npm test --prefix server",
+    "ensure-key": "node scripts/ensure-key.mjs",
+    "make-icons": "node scripts/make-icons.mjs",
+    "install-host": "powershell -ExecutionPolicy Bypass -File installer/install-host.ps1",
+    "uninstall-host": "powershell -ExecutionPolicy Bypass -File installer/uninstall-host.ps1",
+    "e2e": "node scripts/e2e.mjs"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.20.0"
+  }
+}
