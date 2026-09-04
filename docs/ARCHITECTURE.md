@@ -1,44 +1,46 @@
 # Architecture — webmcp-tools
 
-An MCP server that lets AI agents drive the **user's real Chrome session** (real profile,
-cookies, logins, tabs) for full browser automation — **no Playwright, no Selenium, no
-headless browser**. It also speaks **WebMCP** ([spec](https://webmachinelearning.github.io/webmcp/)):
-it can discover and call tools that web pages expose through `document.modelContext`
-(native or polyfilled) including declarative `form[toolname]` tools.
+webmcp-tools is an MCP server. It gives AI agents full control of the real
+Chrome session of the user. The session includes the real profile, cookies,
+logins, and tabs. The project does not use Playwright, Selenium, or a
+headless browser. The server also speaks **WebMCP**
+([spec](https://webmachinelearning.github.io/webmcp/)). It can discover and
+call tools that pages expose through `document.modelContext`, native or
+polyfilled. This includes declarative `form[toolname]` tools.
 
-## Why an extension + native messaging?
+## Why an extension and native messaging?
 
-Since Chrome 136, `--remote-debugging-port` is ignored on the default user profile, so
-CDP-over-DevTools cannot reach the user's *real* daily Chrome session. The supported way
-to instrument the user's actual browser is:
+Chrome 136 and later ignore `--remote-debugging-port` on the default user
+profile. Because of this, CDP over DevTools cannot reach the daily Chrome
+session of the user. The supported way to instrument the real browser is:
 
-1. a **Chrome extension** loaded (unpacked) in the user's normal Chrome, and
-2. a **native messaging host** that Chrome spawns for the extension.
+1. A **Chrome extension** loaded (unpacked) in the normal Chrome of the user.
+2. A **native messaging host** that Chrome starts for the extension.
 
-That pair gives us: `chrome.tabs`, `chrome.scripting` (DOM reads/writes),
-`chrome.debugger` (CDP `Input.*` for trusted, real-input-level events, full-page
-screenshots, network capture) — all attached to the user's real tabs and profile.
+This pair gives access to `chrome.tabs`, `chrome.scripting`, and
+`chrome.debugger`. All of them operate on the real tabs and profile of the
+user.
 
 ## Components
 
 ```
 ┌────────────┐ stdio (JSON-RPC/MCP) ┌─────────────────────┐
-│ MCP client │◄────────────────────►│ webmcp-browser      │  Node.js process spawned by
-│ (agent,    │                      │ MCP server + hub    │  the MCP client (e.g. Claude
-│  IDE, CLI) │                      │ server/ (TS)        │  Desktop, Cursor, ZCode)
+│ MCP client │◄────────────────────►│ webmcp-browser      │  Node.js process. The MCP
+│ (agent,    │                      │ MCP server + hub    │  client starts it (e.g.
+│  IDE, CLI) │                      │ server/ (TS)        │  Claude Desktop, Cursor).
 └────────────┘                      └──────────┬──────────┘
                                                │ TCP 127.0.0.1:<ephemeral>
                                                │ newline-delimited JSON
                                     ┌──────────▼──────────┐
-                                    │ native relay        │  Node.js process spawned by
-                                    │ (same binary,       │  Chrome when the extension
-                                    │  --native-host)     │  calls connectNative()
-                                    └──────────┬──────────┘
+                                    │ native relay        │  Node.js process. Chrome
+                                    │ (same binary,       │  starts it when the
+                                    │  --native-host)     │  extension calls
+                                    └──────────┬──────────┘  connectNative().
                                                │ native messaging
                                                │ (4-byte LE length-prefixed JSON, stdio)
                                     ┌──────────▼──────────┐
                                     │ Chrome extension    │  MV3 service worker in the
-                                    │ extension/ (JS)     │  user's real Chrome
+                                    │ extension/ (JS)     │  real Chrome of the user
                                     └──────────┬──────────┘
                                                │ chrome.tabs / chrome.scripting /
                                                │ chrome.debugger (CDP) / captureVisibleTab
@@ -48,87 +50,98 @@ screenshots, network capture) — all attached to the user's real tabs and profi
                                     └─────────────────────┘
 ```
 
-### Process / transport details
+### Process and transport details
 
-- **Single binary, two modes.** `server/dist/index.js` detects its mode:
-  - launched by an **MCP client** → stdin is line-delimited JSON-RPC → run the MCP server
-    and the TCP **hub** (bind `127.0.0.1`, ephemeral port).
-  - launched by **Chrome native messaging** (argv contains `chrome-extension://…`, or
-    `--native-host` flag) → stdin is length-prefixed frames → run the **relay**: bridge
-    native-messaging frames ↔ a hub TCP connection.
-- **Discovery + auth.** At startup the hub writes `os.tmpdir()/webmcp-tools-hub.json`
-  (`{ port, token }`, owner-only). The relay reads it, connects, and must present the
-  token in its first `hello` message. The file is deleted on clean shutdown. This keeps
-  random local processes from impersonating the bridge.
-- **Multiple browsers.** The hub tracks one connection per browser instance: the
-  extension sends a stable per-profile `instanceId` (UUID in `chrome.storage.local`)
-  with its `extensionHello`. The same id reconnecting replaces its stale socket;
-  different ids coexist. Tool calls carry an optional `instanceId` to target a
-  specific browser; without one, the most recently connected instance answers.
-- **Native host registration.** `installer/install-host.ps1` (Windows, `HKCU`, no admin)
-  and `installer/install-host.sh` (macOS/Linux) write the native-messaging host manifest
-  pointing at `server/bin/webmcp-host.cmd|sh`, which re-launches the same binary with
-  `--native-host`. `allowed_origins` is computed at install time from the deterministic
-  extension ID (pinned by the committed `key` field in `extension/manifest.json`; the
-  private `key.pem` lives at the repo root — Chrome warns if it sits inside the
-  extension directory — and is generated by `scripts/ensure-key.mjs`, kept out of git).
-- **Extension ⇄ server protocol.** See [`PROTOCOL.md`](PROTOCOL.md) — a tiny
-  request/response + event envelope over both hops (native messaging frame ↔ TCP line).
+- **One binary, two modes.** `server/dist/index.js` detects its mode:
+  - An **MCP client** started the process. Stdin carries line-delimited
+    JSON-RPC. The process runs the MCP server and the TCP **hub**. The hub
+    listens on `127.0.0.1` on an ephemeral port.
+  - **Chrome native messaging** started the process (the argument list
+    contains `chrome-extension://…`, or the flag `--native-host` is set).
+    Stdin carries length-prefixed frames. The process runs the **relay**.
+    The relay converts between native-messaging frames and hub TCP lines.
+- **Discovery and authentication.** At startup the hub writes
+  `os.tmpdir()/webmcp-tools-hub.json`. The file contains `{ port, token }`
+  and has owner-only permissions. A clean shutdown deletes it. The relay
+  reads the file, connects, and sends the token in its first `hello`
+  message. A wrong or missing token closes the socket. Because of this,
+  random local processes cannot impersonate the bridge.
+- **Several browsers.** The hub tracks one connection per browser instance.
+  The extension sends a stable per-profile `instanceId` (a UUID in
+  `chrome.storage.local`) with its `extensionHello`. The same id that
+  reconnects replaces its old socket. Different ids coexist. A tool call
+  carries an optional `instanceId` to select a browser. Without it, the most
+  recently connected instance answers.
+- **Native host registration.** `installer/install-host.ps1` (Windows, HKCU,
+  no admin) and `installer/install-host.sh` (macOS/Linux) write the
+  native-messaging host manifest. The manifest points at
+  `server/bin/webmcp-host.cmd|sh`. This launcher restarts the same binary
+  with `--native-host`. The installer computes `allowed_origins` at install
+  time from the deterministic extension ID. The committed `key` field in
+  `extension/manifest.json` pins this ID. The private `key.pem` lives at the
+  repository root — Chrome warns when a key file is inside the extension
+  directory. The script `scripts/ensure-key.mjs` generates it. Git ignores
+  it.
+- **Extension-to-server protocol.** See [`PROTOCOL.md`](PROTOCOL.md). It is
+  a small request, response, and event envelope over both hops (native
+  messaging frame and TCP line).
 
-### Automation strategy (two input modes)
+### Automation strategy — two input modes
 
-- **DOM mode (default):** content scripts resolve element refs/selectors, scroll into
-  view, and dispatch synthetic pointer/keyboard events. No debugger banner; works for
-  the vast majority of pages. Synthetic `click` dispatch relies on the browser's normal
-  activation behavior (checkboxes toggle once, `preventDefault` is honored, labels
-  forward to their controls).
-- **Trusted mode (`trusted: true`):** the extension attaches `chrome.debugger` and sends
-  CDP `Input.dispatchMouseEvent` / `Input.insertText` — real input events, indistinguishable
-  from the user's own input. Chrome shows its "debugging" infobar while attached; the
-  extension detaches when idle.
+- **DOM mode (default):** content scripts resolve element refs and
+  selectors, scroll elements into view, and dispatch synthetic pointer and
+  keyboard events. Chrome shows no debugger banner. This mode works on most
+  pages. A synthetic `click` uses the normal activation behavior of the
+  browser: checkboxes toggle exactly once, `preventDefault` is honored, and
+  labels forward the click to their control.
+- **Trusted mode (`trusted: true`):** the extension attaches
+  `chrome.debugger` and sends CDP `Input.dispatchMouseEvent` and
+  `Input.insertText`. These are real input events. They are the same as the
+  input of the user. Chrome shows its "debugging" infobar while the debugger
+  is attached. The extension detaches when it is idle.
 
-`evaluate` also runs over CDP (`Runtime.evaluate` on a momentary debugger attach):
-`chrome.scripting` cannot evaluate dynamically built code — the extension's own MV3
-CSP blocks `new Function` in ISOLATED worlds and the page's CSP blocks it in MAIN
-worlds. `world:"ISOLATED"` evaluates in a freshly created isolated world (clean JS
-globals, same DOM).
+`evaluate` also runs over CDP (`Runtime.evaluate` with a momentary debugger
+attach). `chrome.scripting` cannot evaluate code built at runtime: the CSP
+of the extension blocks `new Function` in ISOLATED worlds, and the CSP of
+the page blocks it in MAIN worlds. `world:"ISOLATED"` evaluates in a fresh
+isolated world with clean globals and the same DOM.
 
-Console capture: the content script wraps only its *isolated-world* console, which
-pages never log through, so the service worker also injects `lib/console-hook.js`
-into the page's **MAIN world** (browser-injected → exempt from page CSP; modern
-Chrome no longer executes script elements inserted from isolated worlds). The hook
-forwards `console.*`, `error` and `unhandledrejection` entries to the content script
-via `window.postMessage`, which relays them to the service worker's ring buffer.
-
-Element targeting uses **refs** from `snapshot` (stable per tab until navigation) with
-CSS **selector** fallback on every targeting tool.
+Console capture: the content script can wrap only the console of its
+*isolated world*. Pages never log through it. Therefore the service worker
+also injects `lib/console-hook.js` into the **MAIN world** of the page. This
+injection is browser-internal, so a page CSP cannot block it. Modern Chrome
+no longer runs script elements that isolated worlds insert. The hook sends
+`console.*`, `error`, and `unhandledrejection` entries to the content script
+with `window.postMessage`. The content script sends them to the ring buffer
+of the service worker.
 
 ### WebMCP integration
 
-`list_webmcp_tools` runs in the page's **MAIN world**:
+`list_webmcp_tools` runs in the MAIN world of the page:
 
-1. If `document.modelContext` exists (Chrome ≥149 with the WebMCP flag/origin trial) →
-   `await document.modelContext.getTools()`.
-2. Else if the page uses the WebMCP polyfill → tools appear in
-   `window.__webmcp_registered_tools` + declarative `form[toolname]` elements (the
-   polyfill also defines `document.modelContext`, so step 1 usually covers it).
-3. Optionally (`injectPolyfill: true`) inject our vendored polyfill first so pages
-   written against the API work on stable Chrome.
+1. If `document.modelContext` exists (Chrome 149+ with the WebMCP flag or
+   the origin trial), it calls `await document.modelContext.getTools()`.
+2. Else, if the page uses the WebMCP polyfill, the tools appear in
+   `window.__webmcp_registered_tools` and in declarative `form[toolname]`
+   elements. The polyfill also defines `document.modelContext`, so step 1
+   usually covers it.
+3. With `injectPolyfill: true`, the extension injects the vendored polyfill
+   first. Pages written against the API then work on stable Chrome.
 
-`call_webmcp_tool` resolves the tool by name and executes it in the MAIN world via
-`executeTool`, returning the JSON result. This is the "WebMCP way" of driving pages —
-structured tools instead of brittle simulated clicks — while all the classic automation
-tools remain available for pages that don't expose tools.
+`call_webmcp_tool` finds the tool by name and executes it in the MAIN world
+with `executeTool`. It returns the JSON result. This is the "WebMCP way" to
+drive a page: structured tools replace simulated clicks. All classic
+automation tools stay available for pages without tools.
 
 ## Repository layout
 
 ```
-extension/    MV3 Chrome extension (vanilla JS, no build step)
+extension/    MV3 Chrome extension (plain JavaScript, no build step)
 server/       MCP server + native relay + hub (TypeScript → dist/)
 installer/    Native-host installers (Win/macOS/Linux)
 demos/        WebMCP demo pages + automation test pages (static HTML)
 examples/     Runnable example scripts (google-search.mjs, …)
 docs/         ARCHITECTURE.md, PROTOCOL.md, FEATURES.md, USAGE.md
-scripts/      Repo tooling (key gen, icons, E2E runner)
-test/         E2E test driving real Chrome through the whole stack
+scripts/      Repository tooling (key generation, icons, E2E runner)
+test/         E2E test that drives a real Chrome through the full stack
 ```
