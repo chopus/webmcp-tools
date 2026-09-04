@@ -19,9 +19,11 @@ in [`PROTOCOL.md`](PROTOCOL.md).
 - [Installation](#installation)
 - [Configuring an MCP client](#configuring-an-mcp-client)
 - [Tool catalog (27 tools)](#tool-catalog-27-tools)
+- [Multiple browsers (instanceId)](#multiple-browsers-instanceid)
 - [The two input modes (DOM vs trusted)](#the-two-input-modes-dom-vs-trusted)
 - [WebMCP: page-exposed tools](#webmcp-page-exposed-tools)
 - [Demos](#demos)
+- [Examples](#examples)
 - [Security & privacy](#security--privacy)
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
@@ -132,13 +134,15 @@ server over stdio, and the server's hub binds an ephemeral port on
 All params are optional unless marked **required**. Any tool that accepts
 `tabId` targets the **active tab of the last-focused window** when omitted.
 Interaction tools take **exactly one** of `ref` (from `snapshot`) or
-`selector` (CSS).
+`selector` (CSS). **Every** tool also accepts an optional `instanceId` to
+target a specific connected browser (see
+[Multiple browsers](#multiple-browsers-instanceid)).
 
 ### Browser & tabs
 
 | Tool | Params | Result |
 |---|---|---|
-| `get_browser_info` | — | `{ chromeVersion, userAgent, platform, extensionVersion }` |
+| `get_browser_info` | — | `{ chromeVersion, userAgent, platform, extensionVersion, instanceId, instances: [{ instanceId, … }] }` |
 | `list_tabs` | — | `{ tabs: Tab[] }` across all windows |
 | `new_tab` | `url` (default `about:blank`), `active` (default `true`), `windowId` | `{ tab: Tab }` |
 | `activate_tab` | `tabId` **required** | `{ tab: Tab }` (also focuses its window) |
@@ -195,6 +199,22 @@ Interaction tools take **exactly one** of `ref` (from `snapshot`) or
 |---|---|---|
 | `list_webmcp_tools` | `tabId`, `injectPolyfill` (default `false`) | `{ supported, mode: "native"\|"polyfill"\|"declarative"\|"none", tools: [{ name, title?, description?, inputSchema?, origin?, annotations? }] }` |
 | `call_webmcp_tool` | `name` **required**, `args` (default `{}`), `tabId`, `timeoutMs` (default `30000`) | `{ ok: true, result }` — the tool's JSON result; failures surface as `EWEBMCP` errors |
+
+## Multiple browsers (instanceId)
+
+The hub accepts connections from **several browsers at once** — your daily
+Chrome plus any test profiles with the extension loaded. Each install gets a
+stable per-profile `instanceId` (a UUID stored in `chrome.storage.local`;
+older builds without one get a synthetic `conn-N` id).
+
+- Tool calls **without** `instanceId` go to the most recently connected
+  browser (with automatic fallback to the remaining one if it disconnects).
+- Pass `instanceId` to any tool to target a specific browser — e.g. drive a
+  throwaway profile while your daily Chrome stays connected.
+- `get_browser_info` returns the id of the browser it answered from plus the
+  full `instances[]` list, so an agent can decide which browser to target.
+- The same `instanceId` reconnecting (browser restart, service-worker wake)
+  transparently replaces its stale connection.
 
 ## The two input modes (DOM vs trusted)
 
@@ -256,6 +276,18 @@ to the cart."*
 | `demos/automation-test.html` | Deterministic playground for every classic automation tool (click/dblclick/type/select/hover/scroll/keys/console/links) |
 | `demos/navigation-target.html` | Pair page for navigate / go_back / go_forward / reload tests |
 | `demos/shared/webmcp-polyfill.js` | Vendored WebMCP polyfill (Apache-2.0, © Google LLC) |
+
+## Examples
+
+Runnable scripts under [`examples/`](../examples/) (root `npm install` first,
+server built, extension loaded):
+
+| Example | What it shows |
+|---|---|
+| `examples/google-search.mjs` | Google search in your real browser, read page-1 results, click "Next" via a snapshot ref (URL fallback), screenshot the last page — `node examples/google-search.mjs "axolotl" 3` |
+
+A full feature tour with every tool summarized lives in
+[`FEATURES.md`](FEATURES.md).
 
 ## Security & privacy
 

@@ -60,6 +60,11 @@ screenshots, network capture) — all attached to the user's real tabs and profi
   (`{ port, token }`, owner-only). The relay reads it, connects, and must present the
   token in its first `hello` message. The file is deleted on clean shutdown. This keeps
   random local processes from impersonating the bridge.
+- **Multiple browsers.** The hub tracks one connection per browser instance: the
+  extension sends a stable per-profile `instanceId` (UUID in `chrome.storage.local`)
+  with its `extensionHello`. The same id reconnecting replaces its stale socket;
+  different ids coexist. Tool calls carry an optional `instanceId` to target a
+  specific browser; without one, the most recently connected instance answers.
 - **Native host registration.** `installer/install-host.ps1` (Windows, `HKCU`, no admin)
   and `installer/install-host.sh` (macOS/Linux) write the native-messaging host manifest
   pointing at `server/bin/webmcp-host.cmd|sh`, which re-launches the same binary with
@@ -122,7 +127,8 @@ extension/    MV3 Chrome extension (vanilla JS, no build step)
 server/       MCP server + native relay + hub (TypeScript → dist/)
 installer/    Native-host installers (Win/macOS/Linux)
 demos/        WebMCP demo pages + automation test pages (static HTML)
-docs/         ARCHITECTURE.md, PROTOCOL.md, USAGE.md
+examples/     Runnable example scripts (google-search.mjs, …)
+docs/         ARCHITECTURE.md, PROTOCOL.md, FEATURES.md, USAGE.md
 scripts/      Repo tooling (key gen, icons, E2E runner)
 test/         E2E test driving real Chrome through the whole stack
 ```

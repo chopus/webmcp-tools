@@ -30,6 +30,9 @@ you actually use.
 - **27 tools across the stack.** Tabs, navigation, accessibility-style snapshots,
   interaction (DOM-synthetic or trusted CDP input), JS evaluation in both worlds,
   console logs, network capture, screenshots, and WebMCP list/call.
+  Full tour: [`docs/FEATURES.md`](docs/FEATURES.md).
+- **Multiple browsers at once.** Daily Chrome + test profiles connect side by side;
+  every tool can target a specific browser by `instanceId`.
 - **Localhost-only, token-gated bridge.** The hub binds `127.0.0.1`, the native host is
   pinned to your deterministic extension ID, and nothing leaves the machine.
 - **No build step on the extension side** — a small, readable, dependency-free MV3
@@ -72,7 +75,7 @@ Full walkthrough (Claude Desktop / Cursor, troubleshooting, security notes):
 
 Exact parameter shapes, defaults and result contracts: [`docs/PROTOCOL.md`](docs/PROTOCOL.md).
 
-## Demos
+## Demos & examples
 
 | Demo | What |
 |---|---|
@@ -81,6 +84,7 @@ Exact parameter shapes, defaults and result contracts: [`docs/PROTOCOL.md`](docs
 | `demos/automation-test.html` | Deterministic playground for every classic automation tool |
 | `demos/navigation-target.html` | Navigation counterpart page |
 | `demos/shared/webmcp-polyfill.js` | Vendored WebMCP polyfill (Apache-2.0) |
+| `examples/google-search.mjs` | Live search in your real browser: read results, click "Next", screenshot |
 
 ## Layout
 
@@ -90,6 +94,8 @@ Exact parameter shapes, defaults and result contracts: [`docs/PROTOCOL.md`](docs
 | `server/` | MCP server + native relay + hub (TypeScript) |
 | `installer/` | Native messaging host installers (Windows / macOS / Linux) |
 | `demos/` | WebMCP demo pages + automation test pages |
+| `examples/` | Runnable example scripts |
+| `docs/` | Architecture, protocol, features, usage guides |
 | `scripts/` | Repo tooling (extension key, icons, E2E runner) |
 | `test/` | E2E tests driving real Chrome through the whole stack |
 
@@ -97,9 +103,11 @@ Architecture and design rationale: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md
 
 ## Status
 
-> 🚧 Under construction — the bridge protocol is stable
-> ([`docs/PROTOCOL.md`](docs/PROTOCOL.md)) and the end-to-end suite
-> (`npm run e2e`) drives real Chrome through the full chain.
+Working end to end: 44 server unit tests, and a 53-step E2E suite
+(`npm run e2e`) that loads the unpacked extension into a real installed Chrome
+and exercises 26 of 27 tools through the full MCP → hub → native-relay →
+extension chain — verified running while a daily Chrome stays connected to the
+same server.
 
 Roadmap ideas: element snapshot diffs / waitFor helpers on top of refs, multi-tab
 session scripting, WebMCP origin-trial support as it rolls out in Chrome, and packaging
