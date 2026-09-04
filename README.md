@@ -118,32 +118,32 @@ exercises 26 of the 27 tools through the complete chain: MCP client, hub,
 native relay, extension. The suite also runs while a daily Chrome stays
 connected to the same server.
 
-## Roadmap — known gaps & future updates
+## Roadmap — known gaps and future updates
 
-### Gaps you'd hit in daily automation use
+### Gaps in daily automation
 
-- [ ] **iframes & shadow DOM** — the content script is main-frame only; snapshot/click can't reach into cross-origin iframes or pierce shadow roots (banks, embedded players, many SPAs)
-- [ ] **File upload & downloads** — no `upload_file` tool, no download tracking
-- [ ] **Native dialogs** — `alert`/`confirm`/`prompt` and `beforeunload` aren't auto-handled; a stuck dialog blocks everything
-- [ ] **Window management** — no create/resize/position/maximize window tools
-- [ ] **Coordinate clicking** — no "click at x,y" (needed for canvas/games when refs don't exist)
-- [ ] **Element-state waits** — `wait_for` covers text/selector only; no wait-for-enabled/visible/editable, no network-idle wait
-- [ ] **Cookies/storage view** — the extension could expose `chrome.cookies`, history, bookmarks; none of that is surfaced
-- [ ] **PDF export, touch emulation, clipboard** — not exposed
+- [ ] **iframes and shadow DOM** — The content script runs in the main frame only. `snapshot` and `click` cannot reach cross-origin iframes. They also cannot pierce shadow roots. This affects banks, embedded players, and many single-page applications.
+- [ ] **File upload and downloads** — There is no `upload_file` tool. The tools do not track downloads.
+- [ ] **Native dialogs** — The tools do not answer `alert`, `confirm`, `prompt`, or `beforeunload` automatically. An open dialog blocks all other actions.
+- [ ] **Window management** — There are no tools to create, resize, move, or maximize windows.
+- [ ] **Coordinate clicks** — `click` targets a ref or a selector only. Canvas applications and games need clicks at a screen position when refs do not exist.
+- [ ] **Element-state waits** — `wait_for` checks text and selectors only. There is no wait for a state such as enabled, visible, or editable. There is also no wait for network idle.
+- [ ] **Cookies and browsing data** — The extension has access to `chrome.cookies`, history, and bookmarks. No tool exposes this data yet.
+- [ ] **PDF, touch, clipboard** — The tools do not export PDF files. They do not emulate touch input. They do not read the clipboard.
 
-### Missing to be a product rather than a dev tool
+### Product-level gaps
 
-- [ ] **Recorder / codegen** — you can't click around and get a replayable script out
-- [ ] **Flow runner** — no `webmcp run flow.json` with retries/assertions/HTML reports (the REST API example queues in memory only; no persistence)
-- [ ] **Disposable-browser tooling** — the product drives connected browsers but can't launch a fresh isolated profile per job itself (only the E2E harness does, via CDP)
-- [ ] **stdio-only MCP** — no HTTP/SSE transport, so remote agents can't connect across machines; also only one MCP client at a time (the hub-file race documented in USAGE)
-- [ ] **Distribution** — not on npm (`npx webmcp-browser` should be a thing), no packaged installer for non-developers, no CI (`.github/workflows` is empty — no test automation on push), no tags/releases/CHANGELOG
-- [ ] **WebMCP origin-trial support** — track Chrome's native WebMCP rollout (currently the polyfill path is what tests exercise); element snapshot diffs and multi-tab session scripting on top of refs
+- [ ] **Recorder** — There is no record mode. You cannot record your manual actions and get a replayable script.
+- [ ] **Flow runner** — There is no command to run a flow file with retries, assertions, and HTML reports. The REST example keeps its queue in memory only. It does not persist jobs.
+- [ ] **Disposable browsers** — The tools control connected browsers only. They cannot start a fresh isolated profile for each job. Only the E2E harness does this, through CDP.
+- [ ] **stdio-only MCP** — The server supports the stdio transport only. Remote agents cannot connect from another machine. The server also accepts one MCP client at a time. See the hub-file race in `docs/USAGE.md`.
+- [ ] **Distribution** — The package is not on npm. There is no installer for non-developers. There is no CI configuration in `.github/workflows`. There are no releases, tags, or changelog.
+- [ ] **WebMCP origin trial** — Track the native WebMCP rollout in Chrome. The tests exercise the polyfill path today. Related ideas: snapshot diffs and multi-tab session scripts on top of refs.
 
-### Security hardening worth adding
+### Security hardening
 
-- [ ] **Origin policy layer** — the agent can act on *every* site you're logged into, including your bank; an allow/deny-list (and confirmation gates for submits on sensitive domains) would be the responsible next step
-- [ ] **Audit log** — nothing records what the agent did for later review
+- [ ] **Origin policy** — The agent can act on every site where you are logged in. This includes your bank. An allow-list or a deny-list should limit the agent. Submits on sensitive domains should ask for confirmation.
+- [ ] **Audit log** — No feature records the actions of the agent for later review.
 
 ## License
 
