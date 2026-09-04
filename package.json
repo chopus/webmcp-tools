@@ -10,9 +10,12 @@
     "make-icons": "node scripts/make-icons.mjs",
     "install-host": "powershell -ExecutionPolicy Bypass -File installer/install-host.ps1",
     "uninstall-host": "powershell -ExecutionPolicy Bypass -File installer/uninstall-host.ps1",
-    "e2e": "node scripts/e2e.mjs"
+    "e2e": "node scripts/e2e.mjs",
+    "api": "node examples/google-search-api.mjs"
   },
   "devDependencies": {
-    "@modelcontextprotocol/sdk": "^1.20.0"
+    "@hono/node-server": "^2.1.1",
+    "@modelcontextprotocol/sdk": "^1.20.0",
+    "hono": "^4.13.5"
   }
 }

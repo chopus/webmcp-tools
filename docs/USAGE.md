@@ -284,7 +284,8 @@ server built, extension loaded):
 
 | Example | What it shows |
 |---|---|
-| `examples/google-search.mjs` | Google search in your real browser, read page-1 results, click "Next" via a snapshot ref (URL fallback), screenshot the last page — `node examples/google-search.mjs "axolotl" 3` |
+| `examples/google-search.mjs` | CLI search in your real browser: read results, click "Next" via a snapshot ref (URL fallback), screenshot — `node examples/google-search.mjs "axolotl" 3` |
+| `examples/google-search-api.mjs` | **REST automation service** (Hono): `npm run api`, then `POST /search {"query":"capybara","pages":2}` → drives your Chrome and returns the results as JSON (or a rendered HTML page for browsers). Options: `pages`, `screenshot` (data-URL + `.tmp/` copy), `instanceId`, `keepTab`. `GET /health` reports connected browsers; `GET /` serves a small form that POSTs and shows the response. Sequential FIFO queue keeps concurrent requests from racing; search tabs are closed automatically unless `keepTab: true`. |
 
 A full feature tour with every tool summarized lives in
 [`FEATURES.md`](FEATURES.md).

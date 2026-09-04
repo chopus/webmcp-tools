@@ -103,5 +103,9 @@ by `ref` (from `snapshot`) or CSS `selector`.
 
 - [`examples/google-search.mjs`](../examples/google-search.mjs) — open Google in your
   real browser, read page-1 results, click through to page 2, screenshot it.
+- [`examples/google-search-api.mjs`](../examples/google-search-api.mjs) — a REST
+  automation **service** (Hono): `POST /search {"query":"…","pages":2}` drives your
+  real Chrome and returns structured results as JSON or a rendered HTML page;
+  run it with `npm run api`.
 - `demos/` — WebMCP store (imperative tools), declarative reservation form, and a
   deterministic automation playground; see [`USAGE.md`](USAGE.md#demos).
