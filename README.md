@@ -115,5 +115,8 @@ the server as a single distributable for non-developer installs.
 
 ## License
 
-MIT. The vendored WebMCP polyfill (`demos/shared/webmcp-polyfill.js` and its copy in
-`extension/lib/`) is © Google LLC under Apache-2.0, kept with its original header.
+MIT — see [LICENSE](LICENSE). The vendored WebMCP polyfill
+(`demos/shared/webmcp-polyfill.js` and `extension/lib/webmcp-polyfill.js`) is
+© Google LLC under Apache-2.0; its full text ships as
+[LICENSE-APACHE-2.0.txt](LICENSE-APACHE-2.0.txt), with details in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
