@@ -275,8 +275,11 @@ async function call(name, args = {}, opts = {}) {
 /** Parse the pretty-JSON text body most tools return. */
 function jsonOf(name, res) {
   const text = textContentOf(res);
+  // snapshot responses are "<human-readable refs> --- JSON --- {json}"
+  const marker = text.indexOf("--- JSON ---");
+  const payload = marker >= 0 ? text.slice(marker + "--- JSON ---".length).trim() : text;
   try {
-    return JSON.parse(text);
+    return JSON.parse(payload);
   } catch {
     throw new Error(`tool ${name}: expected JSON text response, got: ${text.slice(0, 200)}`);
   }
@@ -745,6 +748,9 @@ async function main() {
   });
 
   await step("get_console_logs has error", { dependsOn: ["click #log-button"] }, async () => {
+    // console entries hop MAIN hook -> postMessage -> content script -> SW buffer;
+    // give the pipeline a moment before reading.
+    await new Promise((r) => setTimeout(r, 500));
     const p = await callJson("get_console_logs", { tabId: ctx.autoTabId });
     const logs = Array.isArray(p.logs) ? p.logs : [];
     const err = logs.find((l) => l && l.level === "error" && String(l.text || "").includes("test-error"));

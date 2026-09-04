@@ -216,6 +216,45 @@
     });
   }
 
+  // ---- evaluate (CDP Runtime.evaluate — immune to page/extension CSP) ------
+  //
+  // chrome.scripting + `new Function` is blocked in ISOLATED worlds by the
+  // extension's own MV3 CSP (no unsafe-eval) and in MAIN worlds by the page's
+  // CSP. CDP Runtime.evaluate has no such restriction: the expression runs in
+  // the page's main context (MAIN) or a freshly created isolated world
+  // (ISOLATED — a clean JS environment sharing the same DOM).
+
+  async function cdpEvaluate(tabId, expression, opts) {
+    const o = opts || {};
+    return withDebugger(tabId, async (command) => {
+      let contextId;
+      if (o.world === 'ISOLATED') {
+        await command('Page.enable', {});
+        const tree = await command('Page.getFrameTree', {});
+        const frameId = tree && tree.frameTree && tree.frameTree.frame && tree.frameTree.frame.id;
+        if (!frameId) {
+          throw U.err('could not resolve the main frame for isolated-world evaluation', 'EDEBUGGER');
+        }
+        const world = await command('Page.createIsolatedWorld', {
+          frameId,
+          worldName: 'webmcp_evaluate'
+        });
+        contextId = world && world.executionContextId;
+        if (!contextId) {
+          throw U.err('Page.createIsolatedWorld failed', 'EDEBUGGER');
+        }
+      }
+      const evalParams = {
+        expression,
+        awaitPromise: !!o.awaitPromise,
+        returnByValue: true,
+        userGesture: true
+      };
+      if (contextId) evalParams.contextId = contextId;
+      return command('Runtime.evaluate', evalParams);
+    });
+  }
+
   // ---- network capture -----------------------------------------------------
 
   chrome.debugger.onEvent.addListener((source, method, params) => {
@@ -319,6 +358,7 @@
     trustedKeyCombo,
     trustedType,
     captureFullPage,
+    cdpEvaluate,
     ensureCapture,
     stopCapture,
     getRequests,

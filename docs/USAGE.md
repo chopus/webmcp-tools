@@ -293,6 +293,15 @@ native host manifest (pinned to the old ID) no longer matches. Re-run
 `npm run install-host` and reload the extension. A Chrome restart may be
 needed for native-host manifest changes to take effect.
 
+**"Specified native messaging host not found" in the service-worker console.**
+Chrome silently treats a host manifest as unfindable if it fails validation.
+Modern Chrome **requires the `description` field** in the manifest JSON — the
+installers in this repo always write it, but if you hand-roll a manifest,
+include it. Also verify the registry value
+(`HKCU\Software\Google\Chrome\NativeMessagingHosts\com.webmcp.tools.host` on
+Windows) points at the generated manifest and that `allowed_origins` matches
+your extension ID.
+
 **Paths with spaces (Windows).**
 Quote them properly and prefer forward slashes in JSON configs:
 `"C:/dev/my tools/webmcp-tools/server/dist/index.js"` works everywhere.
@@ -319,6 +328,21 @@ it started).
 server at a time per user: each server run rewrites
 `os.tmpdir()/webmcp-tools-hub.json` with its own port/token, and a relay
 mid-reconnect will pick up whichever hub wrote last.
+
+**"Evaluating a string as JavaScript violates CSP" — why evaluate uses the
+debugger.** `chrome.scripting` cannot run dynamically built code: the
+extension's own MV3 CSP blocks `new Function` in ISOLATED worlds, and the
+page's CSP blocks it in MAIN worlds. The `evaluate` tool therefore runs over
+CDP `Runtime.evaluate` through a momentary `chrome.debugger` attach — you may
+see the debugging infobar flash. This is also why `evaluate` cannot target
+pages where DevTools (or another extension's debugger) is already attached.
+
+**Console capture on strict-CSP sites.** Page logs are captured by a hook the
+extension injects into the page's MAIN world (`lib/console-hook.js`, installed
+via `chrome.scripting`, which is exempt from page CSP); it forwards entries to
+the content script with `window.postMessage`. This works everywhere; the only
+gap is logs emitted *before* the content script starts (i.e., before
+`document_start` of the extension), which do not exist in practice.
 
 ## Development
 

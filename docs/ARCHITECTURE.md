@@ -73,11 +73,26 @@ screenshots, network capture) — all attached to the user's real tabs and profi
 
 - **DOM mode (default):** content scripts resolve element refs/selectors, scroll into
   view, and dispatch synthetic pointer/keyboard events. No debugger banner; works for
-  the vast majority of pages.
+  the vast majority of pages. Synthetic `click` dispatch relies on the browser's normal
+  activation behavior (checkboxes toggle once, `preventDefault` is honored, labels
+  forward to their controls).
 - **Trusted mode (`trusted: true`):** the extension attaches `chrome.debugger` and sends
   CDP `Input.dispatchMouseEvent` / `Input.insertText` — real input events, indistinguishable
   from the user's own input. Chrome shows its "debugging" infobar while attached; the
   extension detaches when idle.
+
+`evaluate` also runs over CDP (`Runtime.evaluate` on a momentary debugger attach):
+`chrome.scripting` cannot evaluate dynamically built code — the extension's own MV3
+CSP blocks `new Function` in ISOLATED worlds and the page's CSP blocks it in MAIN
+worlds. `world:"ISOLATED"` evaluates in a freshly created isolated world (clean JS
+globals, same DOM).
+
+Console capture: the content script wraps only its *isolated-world* console, which
+pages never log through, so the service worker also injects `lib/console-hook.js`
+into the page's **MAIN world** (browser-injected → exempt from page CSP; modern
+Chrome no longer executes script elements inserted from isolated worlds). The hook
+forwards `console.*`, `error` and `unhandledrejection` entries to the content script
+via `window.postMessage`, which relays them to the service worker's ring buffer.
 
 Element targeting uses **refs** from `snapshot` (stable per tab until navigation) with
 CSS **selector** fallback on every targeting tool.

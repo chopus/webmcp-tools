@@ -131,8 +131,7 @@
 
   window.addEventListener('error', (event) => {
     try {
-      if (event.target && event.target !== window && event.target.tagName) {
-        const el = event.target;
+      if (event.target && event.target !== window && event.target.tagName) {        const el = event.target;
         const src = el.getAttribute && (el.getAttribute('src') || el.getAttribute('href')) || '';
         captureLog('error', [`${el.tagName}${src ? ' ' + src : ''} failed to load`]);
         return;
@@ -152,6 +151,58 @@
       ]);
     } catch (e) { /* noop */ }
   });
+
+  // The wrapped console above lives in the ISOLATED world — page scripts log
+  // through the MAIN world's console and never touch it. Forward MAIN-world
+  // logs (from lib/console-hook.js, injected below and by the service worker)
+  // into the same capture pipeline.
+  window.addEventListener('message', (event) => {
+    try {
+      if (event.source !== window) return;
+      const d = event.data;
+      if (d && d.__webmcpConsole === 1 && typeof d.level === 'string') {
+        captureLog(d.level, [String(d.text)]);
+        flushLogs(); // user-action logs reach the agent without the 200ms tick
+      }
+    } catch (e) { /* never break the page */ }
+  });
+
+  // Best-effort early hook for pages without a strict CSP: inject the same
+  // MAIN-world hook as an inline <script> at document_start. The service
+  // worker also injects it via chrome.scripting (world MAIN) on first contact
+  // with the tab, which covers strict-CSP pages; both paths are idempotent.
+  try {
+    const hookScript = document.createElement('script');
+    hookScript.textContent =
+      '(function(){if(window.__webmcpConsoleHooked)return;window.__webmcpConsoleHooked=true;' +
+      'function f(a){try{var p=[];for(var i=0;i<a.length;i++){var v=a[i];' +
+      'if(typeof v==="string"){p.push(v);continue}if(v instanceof Error){p.push(v.stack||(v.name+": "+v.message));continue}' +
+      'var s;try{s=JSON.stringify(v)}catch(e){s=String(v)}p.push(s===undefined?String(v):s)}' +
+      'var t=p.join(" ");return t.length>2000?t.slice(0,2000)+"…":t}catch(e){return"[unserializable]"}}' +
+      'function send(l,t){try{window.postMessage({__webmcpConsole:1,level:l,text:t},"*")}catch(e){}}' +
+      '["log","info","warn","error","debug"].forEach(function(l){try{var o=console[l];' +
+      'if(typeof o!=="function")return;console[l]=function(){send(l,f(arguments));' +
+      'try{return o.apply(console,arguments)}catch(e){}}}catch(e){}});' +
+      'window.addEventListener("error",function(e){try{var t=e.message||"Script error";' +
+      'if(e.filename)t+=" ("+e.filename+":"+(e.lineno||0)+")";send("error",t)}catch(err){}});' +
+      'window.addEventListener("unhandledrejection",function(e){try{var r=e.reason;' +
+      'send("error","Unhandled rejection: "+((r&&(r.stack||r.message))||String(r)))}catch(err){}})})();';
+    (document.head || document.documentElement).appendChild(hookScript);
+    hookScript.remove();
+    console.info('[webmcp-cs] inline MAIN console hook appended');
+  } catch (e) {
+    console.warn('[webmcp-cs] inline console hook failed:', e && e.message);
+  }
+
+  // Modern Chrome blocks script elements inserted from isolated worlds from
+  // running in the MAIN world, so ask the service worker to inject the hook
+  // with chrome.scripting (world: MAIN), which is exempt from page CSP.
+  try {
+    chrome.runtime.sendMessage({ type: 'needConsoleHook' }, () => {
+      void chrome.runtime.lastError;
+    });
+  } catch (e) { /* worker may be asleep */ }
+
 
   // ===========================================================================
   // ref registry — refs are stable for the document lifetime
@@ -871,14 +922,9 @@
     };
 
     const tag = el.tagName;
-    // Synthetic clicks don't toggle inputs — do it before dispatching so
-    // frameworks observe the final state during their click handler.
-    if (buttonIdx === 0 && tag === 'INPUT' && !el.disabled) {
-      try {
-        if (el.type === 'checkbox') el.checked = !el.checked;
-        else if (el.type === 'radio') el.checked = true;
-      } catch (e) { /* noop */ }
-    }
+    // NOTE: no manual checkbox/radio toggling here. Dispatching a click event
+    // runs the control's activation behavior (toggling happens exactly once,
+    // preventDefault is honored), which also matches what frameworks expect.
 
     safeDispatch(el, pointerEvent('pointerover', Object.assign({}, common, { buttons: 0 })));
     safeDispatch(el, mouseEvent('mouseover', Object.assign({}, common, { buttons: 0 })));

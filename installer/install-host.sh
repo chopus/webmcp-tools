@@ -57,6 +57,7 @@ MANIFEST="$NM_DIR/$HOST_NAME.json"
 cat > "$MANIFEST" <<EOF
 {
   "name": "$HOST_NAME",
+  "description": "WebMCP Tools bridge: connects the Chrome extension to the webmcp-browser MCP server",
   "path": "$HOST_LAUNCHER",
   "type": "stdio",
   "allowed_origins": ["chrome-extension://$EXTENSION_ID/"]

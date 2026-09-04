@@ -74,6 +74,7 @@ if (-not $ExtensionId -or $ExtensionId -notmatch '^[a-p]{32}$') {
 $ManifestPath = Join-Path $InstallerDir "$HostName.generated.json"
 $Manifest = [ordered]@{
     name            = $HostName
+    description     = "WebMCP Tools bridge: connects the Chrome extension to the webmcp-browser MCP server"
     path            = $HostLauncher
     type            = "stdio"
     allowed_origins = @("chrome-extension://$ExtensionId/")

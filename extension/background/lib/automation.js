@@ -211,42 +211,10 @@
   }
 
   // ---- evaluate -------------------------------------------------------------
-
-  /**
-   * ISOLATED/MAIN world evaluation wrapper (serialized into the page).
-   * Chrome awaits the returned promise and delivers the plain object below.
-   */
-  async function evaluateWrapper(src, args, awaitPromise) {
-    const out = { result: null, exception: null };
-    let fn = null;
-    try {
-      // eslint-disable-next-line no-eval
-      fn = (0, eval)('(' + src + ')');
-    } catch (e) {
-      out.exception = 'SyntaxError: ' + ((e && e.message) || String(e));
-      return out;
-    }
-    if (typeof fn !== 'function') {
-      out.exception = 'the provided function string did not evaluate to a function';
-      return out;
-    }
-    try {
-      let value = fn(args);
-      if (awaitPromise && value && typeof value.then === 'function') {
-        value = await value;
-      }
-      try {
-        out.result = JSON.parse(JSON.stringify(value === undefined ? null : value));
-      } catch (e) {
-        out.result = null;
-        out.exception = 'non-serializable result';
-      }
-    } catch (e) {
-      out.result = null;
-      out.exception = e && e.stack ? String(e.stack) : String(e);
-    }
-    return out;
-  }
+  //
+  // Runs over CDP Runtime.evaluate (NS.cdp.cdpEvaluate): `new Function`-style
+  // evaluation via chrome.scripting is blocked in ISOLATED worlds by the
+  // extension's MV3 CSP and in MAIN worlds by the page's CSP.
 
   async function evaluate(tab, params) {
     const fnSrc = U.reqStr(params, 'function');
@@ -259,32 +227,45 @@
     const awaitPromise = U.optBool(params, 'awaitPromise', true);
     const timeoutMs = Math.max(100, U.optInt(params, 'timeoutMs', 10000));
 
-    let results;
+    let argsJson;
     try {
-      results = await U.withTimeout(
-        chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          world,
-          func: evaluateWrapper,
-          args: [fnSrc, argsVal, awaitPromise]
-        }),
+      argsJson = JSON.stringify(argsVal);
+    } catch (e) {
+      throw U.err('args is not JSON-serializable', 'EARGS');
+    }
+    const expression = '(' + fnSrc + ')(' + argsJson + ')';
+
+    let res;
+    try {
+      res = await U.withTimeout(
+        NS.cdp.cdpEvaluate(tab.id, expression, { world, awaitPromise }),
         timeoutMs,
         `evaluate timed out after ${timeoutMs}ms`
       );
     } catch (e) {
-      if (e && e.code === 'ETIMEOUT') throw e;
-      void chrome.runtime.lastError;
+      if (e && e.code) throw e;
       throw U.err(
-        `executeScript failed in tab ${tab.id} (${(e && e.message) || e})`,
+        `evaluate failed in tab ${tab.id} (${(e && e.message) || e})`,
         'EEXECUTION'
       );
     }
-    const injected = results && results[0] && results[0].result;
-    if (!injected || typeof injected !== 'object') {
-      throw U.err('evaluate returned no usable result', 'EEXECUTION');
+
+    const out = { result: null, exception: null };
+    if (res && res.exceptionDetails) {
+      const d = res.exceptionDetails;
+      out.exception =
+        (d.exception && (d.exception.description || d.exception.value)) ||
+        d.text ||
+        'evaluation threw';
+      out.exception = String(out.exception).split('\n').slice(0, 6).join('\n');
+      return out;
     }
-    const out = { result: injected.result === undefined ? null : injected.result };
-    if (injected.exception) out.exception = String(injected.exception);
+    const r = res && res.result;
+    if (!r || r.type === 'undefined' || r.type === 'function' || r.type === 'symbol' ||
+        r.subtype === 'node' || r.subtype === 'error') {
+      return out; // { result: null, exception: null }
+    }
+    out.result = r.value !== undefined ? r.value : null;
     return out;
   }
 

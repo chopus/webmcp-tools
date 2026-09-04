@@ -14,6 +14,28 @@
   const U = NS.util;
 
   const CONTENT_FILES = ['content/content.js'];
+  const CONSOLE_HOOK_FILES = ['lib/console-hook.js'];
+
+  /** Fire-and-forget MAIN-world console hook (page CSP does not apply). */
+  function injectConsoleHook(tabId) {
+    try {
+      chrome.scripting.executeScript({
+        target: { tabId, frameIds: [0] },
+        files: CONSOLE_HOOK_FILES,
+        world: 'MAIN',
+        injectImmediately: true
+      }, (results) => {
+        const lastErr = chrome.runtime.lastError;
+        if (lastErr) {
+          console.warn('[webmcp] console hook injection failed:', lastErr.message);
+        } else {
+          console.log('[webmcp] console hook injected into tab', tabId);
+        }
+      });
+    } catch (e) {
+      console.warn('[webmcp] console hook injection threw:', e && e.message);
+    }
+  }
 
   function rawSend(tabId, message) {
     return new Promise((resolve, reject) => {
@@ -54,6 +76,7 @@
 
   /** Make sure the content script is alive in the tab's main frame. */
   async function ensureInjected(tabId) {
+    injectConsoleHook(tabId);
     try {
       await ping(tabId);
       return;
@@ -103,6 +126,7 @@
   NS.contentBridge = {
     ensureInjected,
     askTab,
-    ping
+    ping,
+    injectConsoleHook
   };
 })(self);

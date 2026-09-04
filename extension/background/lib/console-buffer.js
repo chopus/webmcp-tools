@@ -48,6 +48,12 @@
             text: e.text === undefined || e.text === null ? '' : String(e.text)
           });
         }
+      } else if (msg.type === 'needConsoleHook') {
+        // The content script asks for the MAIN-world console hook (its inline
+        // DOM injection is blocked by modern Chrome's isolated-world rules).
+        if (NS.contentBridge && typeof NS.contentBridge.injectConsoleHook === 'function') {
+          NS.contentBridge.injectConsoleHook(tabId);
+        }
       }
     } catch (e) {
       /* logs must never break the worker */

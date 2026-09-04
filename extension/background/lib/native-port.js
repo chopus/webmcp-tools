@@ -64,7 +64,8 @@
   }
 
   function onDisconnected() {
-    void chrome.runtime.lastError; // consume to avoid unchecked-lastError warnings
+    const reason = chrome.runtime.lastError ? chrome.runtime.lastError.message : 'unknown';
+    console.warn('[webmcp] native port disconnected:', reason);
     port = null;
     clearTimeout(stableTimer);
     for (const finish of pendingResponses.values()) {
@@ -98,6 +99,7 @@
       port = p;
       p.onMessage.addListener(onMessage);
       p.onDisconnect.addListener(onDisconnected);
+      console.log('[webmcp] connectNative(', HOST_NAME, ') issued');
       onConnected();
     } catch (e) {
       port = null;
