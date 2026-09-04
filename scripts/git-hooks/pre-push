@@ -1,0 +1,35 @@
+#!/bin/sh
+# webmcp-tools pre-push guard (dual-remote workflow).
+#
+# The PUBLIC remote (origin, github.com/chopus/webmcp-tools) may only receive
+# main -> main. Everything else (private branches, tags, or rewriting main from
+# a private branch) must go to the PRIVATE remote:
+#
+#     git push private <branch>
+#
+# Install (after cloning):  sh scripts/git-hooks/install.sh
+#
+# pre-push stdin lines are: <local-ref> <local-sha> <remote-ref> <remote-sha>
+# Both refs must be main for the public remote — checking only the local ref
+# would let `git push origin main:some-branch` through, and checking only the
+# remote ref would let `git push origin private-branch:main` through.
+remote_name="$1"
+remote_url="$2"
+
+# The private repo takes anything.
+case "$remote_url" in
+  *webmcp-tools-private*) exit 0 ;;
+esac
+
+zero=0000000000000000000000000000000000000000
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -z "$local_ref" ] && continue
+  if [ "$local_ref" != "refs/heads/main" ] || [ "$remote_ref" != "refs/heads/main" ]; then
+    echo "BLOCKED by pre-push hook:" >&2
+    echo "  '$local_ref' -> '$remote_ref' is not allowed on the public remote." >&2
+    echo "  Only main -> main is public. For private work use:" >&2
+    echo "      git push private ${local_ref#refs/heads/}" >&2
+    exit 1
+  fi
+done
+exit 0

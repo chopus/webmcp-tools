@@ -389,6 +389,25 @@ npm test      # server unit tests (runs in server/)
 npm run e2e   # full-stack E2E: real Chrome + extension + native host + MCP client
 ```
 
+### Dual-remote workflow (public + private)
+
+The project ships a **public** repo plus a **private** one for confidential
+branches. After cloning, install the push guard once:
+
+```bash
+sh scripts/git-hooks/install.sh
+```
+
+It blocks any push to the public remote that isn't `main -> main` (including
+`main:some-branch` and `private-branch:main`), while the private remote
+(`git remote add private <url>` if absent) accepts anything. Daily use:
+
+```bash
+git push                    # public: main only
+git push private main       # sync the private base
+git checkout -b secret-x && git push private secret-x   # private work
+```
+
 | Path | What |
 |---|---|
 | `extension/` | MV3 Chrome extension (vanilla JS, no build step) |
