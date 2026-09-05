@@ -167,16 +167,11 @@
     } catch (e) { /* never break the page */ }
   });
 
-  // Modern Chrome both (a) refuses to run script elements inserted from
-  // isolated worlds and (b) logs a CSP violation for the attempt, so don't
-  // inject an inline hook from here. Ask the service worker to inject
-  // lib/console-hook.js with chrome.scripting (world: MAIN) instead — that
-  // path is exempt from page CSP and verified working.
-  try {
-    chrome.runtime.sendMessage({ type: 'needConsoleHook' }, () => {
-      void chrome.runtime.lastError;
-    });
-  } catch (e) { /* worker may be asleep */ }
+  // NOTE: the MAIN-world console hook (lib/console-hook.js) is NOT requested
+  // here. Wrapping console makes Chrome attribute every page console call to
+  // this extension's error log, so passive browsing must not install it. The
+  // service worker injects the hook only on agent-driven tabs (see
+  // content-bridge.ensureInjected and console-buffer.getLogs).
 
 
   // ===========================================================================

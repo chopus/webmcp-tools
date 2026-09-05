@@ -364,11 +364,15 @@ blocks it in MAIN worlds. Therefore the `evaluate` tool runs over CDP
 the debugging infobar flash. The same restriction means that `evaluate`
 cannot target a tab where DevTools or another debugger is already attached.
 
-**Console capture on pages with a strict CSP.** The extension injects
-`lib/console-hook.js` into the MAIN world of the page. It uses
-`chrome.scripting`, which the page CSP does not restrict. The hook sends the
-entries to the content script with `window.postMessage`. This works on all
-pages. Logs emitted before the extension starts are not captured.
+**Console capture scope.** The extension injects `lib/console-hook.js` into
+the MAIN world of a page with `chrome.scripting`. A page CSP cannot restrict
+this injection. The hook sends the entries to the content script with
+`window.postMessage`. The hook is installed **only on tabs that the agent
+drives** (or on the tab of a `get_console_logs` call). A wrapped console
+makes Chrome put the console calls of the page into the error log of this
+extension. Therefore the hook does not run on tabs that you browse
+passively. Logs emitted before the first agent action on a tab are not
+captured.
 
 **E2E specifics.**
 `scripts/e2e.mjs` starts a fresh-profile Chrome with

@@ -16,6 +16,26 @@
   const CONTENT_FILES = ['content/content.js'];
   const CONSOLE_HOOK_FILES = ['lib/console-hook.js'];
 
+  // Tabs where the MAIN-world console hook was requested this document.
+  // Wrapping console makes Chrome attribute page console calls to this
+  // extension's error log, so the hook must exist ONLY on agent-driven tabs
+  // — never on pages the user browses passively.
+  const hookRequested = new Set();
+
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+    if (changeInfo && (changeInfo.url !== undefined || changeInfo.status === 'loading')) {
+      hookRequested.delete(tabId); // new document: hook must be reinstalled
+    }
+  });
+  chrome.tabs.onRemoved.addListener((tabId) => hookRequested.delete(tabId));
+
+  /** Install the MAIN-world console hook once per tab document (best effort). */
+  function ensureConsoleHook(tabId) {
+    if (hookRequested.has(tabId)) return;
+    hookRequested.add(tabId);
+    injectConsoleHook(tabId);
+  }
+
   /** Fire-and-forget MAIN-world console hook (page CSP does not apply). */
   function injectConsoleHook(tabId) {
     try {
@@ -76,7 +96,7 @@
 
   /** Make sure the content script is alive in the tab's main frame. */
   async function ensureInjected(tabId) {
-    injectConsoleHook(tabId);
+    ensureConsoleHook(tabId);
     try {
       await ping(tabId);
       return;
@@ -111,11 +131,14 @@
   /**
    * Send `{type:"<op>", ...}` to the tab's content script and resolve with the
    * `{ok:true, ...}` payload. On "could not establish connection", injects the
-   * content script once and retries before giving up.
+   * content script once and retries before giving up. A successful contact
+   * marks the tab as agent-driven, which installs the console hook.
    */
   async function askTab(tabId, message) {
     try {
-      return unwrap(await rawSend(tabId, message));
+      const res = await rawSend(tabId, message);
+      ensureConsoleHook(tabId);
+      return unwrap(res);
     } catch (e) {
       if (!e || !e.noReceiver) throw e;
       await ensureInjected(tabId);

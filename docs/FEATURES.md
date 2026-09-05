@@ -69,7 +69,7 @@ connected browser. Interaction tools target elements by `ref` (from
 ### Console & network
 | Tool | What it does |
 |---|---|
-| `get_console_logs` | Returns page console, error, and rejection entries. The MAIN-world hook collects them; a page CSP cannot block it. Ring buffer of 1000 per tab. A navigation clears it. |
+| `get_console_logs` | Returns page console, error, and rejection entries. The MAIN-world hook collects them; a page CSP cannot block it. The hook runs on agent-driven tabs only. Ring buffer of 1000 per tab. A navigation clears it. |
 | `get_network_requests` | Returns requests with timestamp, method, URL, and status from a CDP capture. Ring buffer of 500 per tab. |
 | `stop_network_capture` | Detaches the network debugger |
 

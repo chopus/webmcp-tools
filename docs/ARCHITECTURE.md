@@ -108,12 +108,16 @@ isolated world with clean globals and the same DOM.
 
 Console capture: the content script can wrap only the console of its
 *isolated world*. Pages never log through it. Therefore the service worker
-also injects `lib/console-hook.js` into the **MAIN world** of the page. This
-injection is browser-internal, so a page CSP cannot block it. Modern Chrome
-no longer runs script elements that isolated worlds insert. The hook sends
-`console.*`, `error`, and `unhandledrejection` entries to the content script
-with `window.postMessage`. The content script sends them to the ring buffer
-of the service worker.
+also injects `lib/console-hook.js` into the **MAIN world** of the page.
+This injection is browser-internal, so a page CSP cannot block it. Modern
+Chrome no longer runs script elements that isolated worlds insert. A wrapped
+console makes Chrome put the console calls of the page into the error log of
+the extension, so the hook is installed **only on agent-driven tabs**
+(first contact through the content bridge, or a `get_console_logs` call) and
+never on tabs the user browses passively. The hook sends `console.*`,
+`error`, and `unhandledrejection` entries to the content script with
+`window.postMessage`. The content script sends them to the ring buffer of
+the service worker.
 
 ### WebMCP integration
 
