@@ -255,6 +255,32 @@
     });
   }
 
+  // ---- cookies (CDP Network.getCookies — includes HttpOnly) ----------------
+
+  /**
+   * Read cookies for the tab's URL (or an explicit url) through a momentary
+   * debugger attach. CDP sees HttpOnly cookies that document.cookie hides —
+   * including session credentials — so the results are sensitive by design.
+   */
+  async function getCookies(tabId, url) {
+    return withDebugger(tabId, async (command) => {
+      const res = await command('Network.getCookies', url ? { urls: [url] } : {});
+      const raw = res && Array.isArray(res.cookies) ? res.cookies : [];
+      const cookies = raw.map((c) => ({
+        name: c.name || '',
+        value: c.value || '',
+        domain: c.domain || '',
+        path: c.path || '',
+        httpOnly: !!c.httpOnly,
+        secure: !!c.secure,
+        sameSite: c.sameSite || '',
+        session: !!c.session,
+        expires: typeof c.expires === 'number' && c.expires > 0 ? c.expires : undefined
+      }));
+      return { cookies };
+    });
+  }
+
   // ---- network capture -----------------------------------------------------
 
   chrome.debugger.onEvent.addListener((source, method, params) => {
@@ -359,6 +385,7 @@
     trustedType,
     captureFullPage,
     cdpEvaluate,
+    getCookies,
     ensureCapture,
     stopCapture,
     getRequests,

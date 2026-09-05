@@ -224,6 +224,12 @@
       return NS.cdp.stopCapture(tab.id);
     },
 
+    get_cookies: async (params) => {
+      const tab = await NS.tabs.resolveTab(params.tabId);
+      const url = typeof params.url === 'string' && params.url ? params.url : (tab.url || '');
+      return NS.cdp.getCookies(tab.id, url);
+    },
+
     // ---- §7 WebMCP ----------------------------------------------------------
     list_webmcp_tools: async (params) => {
       const tab = await NS.tabs.resolveTab(params.tabId);

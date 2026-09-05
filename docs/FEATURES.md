@@ -18,7 +18,7 @@ This document lists all features. For install steps, read
   (`document.modelContext`). Pages can expose typed tools. Agents call these
   tools with JSON arguments instead of simulating clicks.
 
-## The 27 tools
+## The 28 tools
 
 Each tool accepts an optional `tabId`. The default target is the active tab.
 Each tool also accepts an optional `instanceId`. This parameter selects a
@@ -72,6 +72,7 @@ connected browser. Interaction tools target elements by `ref` (from
 | `get_console_logs` | Returns page console, error, and rejection entries. The MAIN-world hook collects them; a page CSP cannot block it. The hook runs on agent-driven tabs only. Ring buffer of 1000 per tab. A navigation clears it. |
 | `get_network_requests` | Returns requests with timestamp, method, URL, and status from a CDP capture. Ring buffer of 500 per tab. |
 | `stop_network_capture` | Detaches the network debugger |
+| `get_cookies` | Reads the cookies of a tab through CDP, **including HttpOnly cookies** that `document.cookie` hides — session credentials included. Treat the values as secrets. |
 
 ### WebMCP — the differentiator
 | Tool | What it does |
@@ -104,7 +105,7 @@ connected browser. Interaction tools target elements by `ref` (from
   before you load it.
 - **Installers for all platforms.** Windows (HKCU, no admin; Chrome and
   Edge), macOS, and Linux.
-- **Tested.** The server has 44 unit tests. The E2E suite has 53 steps. It
+- **Tested.** The server has 44 unit tests. The E2E suite has 54 steps. It
   drives a real installed Chrome through the complete chain. The suite was
   verified while the daily Chrome of the developer stayed connected to the
   same server.

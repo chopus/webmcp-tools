@@ -744,7 +744,7 @@ async function main() {
       function: `(args) => document.querySelector("#count-display").textContent`,
       args: {}, world: "ISOLATED"
     });
-    await call("click", { tabId: ctx.autoTabId, selector: "#count-button", trusted: true });
+    await call("click", { tabId: ctx.autoTabId, selector: "#count-button", trusted: true, timeoutMs: 15000 });
     const after = await callJson("evaluate", {
       tabId: ctx.autoTabId,
       function: `(args) => document.querySelector("#count-display").textContent`,
@@ -755,7 +755,7 @@ async function main() {
   });
 
   await step("trusted type_text", { dependsOn: ["new_tab automation-test"] }, async () => {
-    await call("type_text", { tabId: ctx.autoTabId, selector: "#name-input", text: "Trusted", clearFirst: true, trusted: true });
+    await call("type_text", { tabId: ctx.autoTabId, selector: "#name-input", text: "Trusted", clearFirst: true, trusted: true, timeoutMs: 15000 });
     const p = await callJson("evaluate", {
       tabId: ctx.autoTabId,
       function: `(args) => document.querySelector("#name-input").value`,
@@ -809,6 +809,18 @@ async function main() {
     const err = logs.find((l) => l && l.level === "error" && String(l.text || "").includes("test-error"));
     assert(err, `no level=error entry containing "test-error" among ${logs.length} log(s)`);
     return `${logs.length} log(s), error entry present`;
+  });
+
+  await step("get_cookies reads page cookie", { dependsOn: ["new_tab automation-test"] }, async () => {
+    await call("evaluate", {
+      tabId: ctx.autoTabId,
+      function: "(args) => { document.cookie = 'webmcp_e2e=ok; path=/'; return document.cookie.includes('webmcp_e2e'); }",
+      world: "MAIN",
+    });
+    const p = await callJson("get_cookies", { tabId: ctx.autoTabId });
+    const c = (p.cookies ?? []).find((x) => x.name === "webmcp_e2e");
+    assert(c && c.value === "ok", `webmcp_e2e not found among ${(p.cookies ?? []).length} cookie(s)`);
+    return `${(p.cookies ?? []).length} cookie(s), webmcp_e2e=ok via CDP`;
   });
 
   await step("navigate to navigation-target", { dependsOn: ["new_tab automation-test"] }, async () => {

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { HubApi } from "../src/hub.js";
 import { withMcpClient } from "./helpers.js";
 
-// The exact tool surface from docs/PROTOCOL.md §1–§7 (27 tools).
+// The exact tool surface from docs/PROTOCOL.md §1–§7 (28 tools).
 const EXPECTED_TOOLS = [
   // §1 Browser / tabs
   "get_browser_info",
@@ -35,6 +35,7 @@ const EXPECTED_TOOLS = [
   "get_console_logs",
   "get_network_requests",
   "stop_network_capture",
+  "get_cookies",
   // §7 WebMCP
   "list_webmcp_tools",
   "call_webmcp_tool",
@@ -47,12 +48,12 @@ function fakeHub(): HubApi {
 }
 
 describe("MCP tool surface", () => {
-  it("exposes exactly the 27 tools from PROTOCOL.md", async () => {
+  it("exposes exactly the 28 tools from PROTOCOL.md", async () => {
     await withMcpClient(fakeHub(), async (client) => {
       const { tools } = await client.listTools();
       const names = tools.map((tool) => tool.name).sort();
       expect(names).toEqual([...EXPECTED_TOOLS].sort());
-      expect(tools).toHaveLength(27);
+      expect(tools).toHaveLength(28);
     });
   });
 

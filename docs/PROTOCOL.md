@@ -177,6 +177,7 @@ the content script; attach → act → detach. Non-trusted: content-script synth
 | `get_console_logs` | `{ tabId?, levels?=["error","warn","log","info","debug"], lastN?=200 }` | `{ logs: [{ ts, tabId, level, text }] }` — ring buffer 1000/tab in the SW, cleared on navigation |
 | `get_network_requests` | `{ tabId?, urlContains?, lastN?=50 }` | `{ requests: [{ ts, method, url, status, type }] }` — attaches `chrome.debugger`, `Network.enable`, ring buffer 500/tab |
 | `stop_network_capture` | `{ tabId? }` | `{ stopped: true }` — detaches debugger for that tab (if attached only for capture) |
+| `get_cookies` | `{ tabId?, url? }` | `{ cookies: [{ name, value, domain, path, httpOnly, secure, sameSite, session, expires? }] }` — via a momentary debugger attach (`Network.getCookies`); includes HttpOnly cookies (session credentials — treat values as secrets) |
 
 ### 7. WebMCP
 

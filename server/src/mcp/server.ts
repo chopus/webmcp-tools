@@ -434,6 +434,18 @@ const TOOL_DEFS: ToolDef[] = [
     shape: { ...tabIdShape },
     timeoutMs: 10000,
   },
+  {
+    name: "get_cookies",
+    description:
+      "Read the cookies visible to a tab — including HttpOnly cookies such as session " +
+      "credentials — via a momentary debugger attach. The values are sensitive; treat " +
+      "them as secrets.",
+    shape: {
+      ...tabIdShape,
+      url: z.string().optional().describe("Read cookies for this URL instead of the tab's URL"),
+    },
+    timeoutMs: 10000,
+  },
 
   // ----- §7 WebMCP -----
   {

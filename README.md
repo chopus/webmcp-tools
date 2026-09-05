@@ -31,7 +31,7 @@ It operates on the browser session that you use.
 - **WebMCP-aware.** Pages can expose typed tools, for example `search_catalog`
   or `reserve_table`. The agent calls them with JSON arguments. A vendored
   polyfill adds this function to stable Chrome.
-- **27 tools.** The tools cover tabs, navigation, snapshots, clicks, typing,
+- **28 tools.** The tools cover tabs, navigation, snapshots, clicks, typing,
   scrolling, screenshots, JavaScript evaluation, console logs, network capture,
   and WebMCP. Read the full list in [`docs/FEATURES.md`](docs/FEATURES.md).
 - **Several browsers at once.** Your daily Chrome and your test profiles can
@@ -77,7 +77,7 @@ Claude Desktop, Cursor, security notes, and troubleshooting.
 - **Observation** — `snapshot`, `get_page_text`, `get_links`, `screenshot`
 - **Interaction** — `click`, `type_text`, `press_key`, `hover`, `scroll`, `select_option`, `drag`
 - **JavaScript** — `evaluate` (MAIN or ISOLATED world)
-- **Console & network** — `get_console_logs`, `get_network_requests`, `stop_network_capture`
+- **Console & network** — `get_console_logs`, `get_network_requests`, `stop_network_capture`, `get_cookies`
 - **WebMCP** — `list_webmcp_tools`, `call_webmcp_tool`
 
 For exact parameters, defaults, and result contracts, read

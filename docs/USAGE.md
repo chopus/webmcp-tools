@@ -21,7 +21,7 @@ contract, read [`PROTOCOL.md`](PROTOCOL.md).
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
 - [Configuring an MCP client](#configuring-an-mcp-client)
-- [Tool catalog (27 tools)](#tool-catalog-27-tools)
+- [Tool catalog (28 tools)](#tool-catalog-28-tools)
 - [Multiple browsers (instanceId)](#multiple-browsers-instanceid)
 - [The two input modes (DOM vs trusted)](#the-two-input-modes-dom-vs-trusted)
 - [WebMCP: page-exposed tools](#webmcp-page-exposed-tools)
@@ -133,7 +133,7 @@ WebSocket endpoint. The hub of the server listens on an ephemeral port on
 `127.0.0.1`. Only the native relay may use this port. The relay reads the
 token from `os.tmpdir()/webmcp-tools-hub.json`.
 
-## Tool catalog (27 tools)
+## Tool catalog (28 tools)
 
 All parameters are optional unless marked **required**. A tool that accepts
 `tabId` targets the active tab of the last-focused window when you omit the
@@ -196,6 +196,7 @@ select a connected browser. See
 | `get_console_logs` | `tabId`, `levels` (default all), `lastN` (default `200`) | `{ logs: [{ ts, tabId, level, text }] }` — ring buffer of 1000 per tab. A navigation clears the buffer. |
 | `get_network_requests` | `tabId`, `urlContains`, `lastN` (default `50`) | `{ requests: [{ ts, method, url, status, type }] }` — attaches `chrome.debugger` and enables `Network`. Ring buffer of 500 per tab. The first call starts the capture. Requests before this call are not in the buffer. |
 | `stop_network_capture` | `tabId` | `{ stopped: true }` — detaches the debugger if the capture owns it |
+| `get_cookies` | `tabId`, `url` (read cookies for this URL instead of the tab URL) | `{ cookies: [{ name, value, domain, path, httpOnly, secure, sameSite, session, expires? }] }` — reads through a momentary debugger attach. Includes **HttpOnly** cookies such as session credentials. Treat the values as secrets. |
 
 ### WebMCP
 
