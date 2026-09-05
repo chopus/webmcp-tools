@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "WebMCP Tools",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Drives the user's real Chrome session for AI agents via native messaging.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAoGMwZXx0h+B5bpn7oiy5v88qs4mUETJuIw//jKb6UE4g94m8HHJAeG1p7+OF4mAzJ1K62q+1H23BUYlyl4u3T2bFDrGx5EKiRkcPuaMe8ily+ITIrdKm0yBDfUq2c7yKBmHHFCmjhELDdQrXOMCxPcXV5GiNRqrt//q79rwJdFpuItC6kumPW+saf9AFwPilJ4fVoxP91gc+E+cHV7fqrxFFU1yOhQ7S2sqKFFxJMLC0kdR0B+2OxlB6emoJzB/bhDnm7xzod+9cAPRNWNH42QQouauuzVdttbkU4R+Tn6PpJViGhPTYVgmRuKn/irKVUoY+weVIsAy89s7SV/t/fQIDAQAB",
   "minimum_chrome_version": "116",
