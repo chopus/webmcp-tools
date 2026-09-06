@@ -33,3 +33,18 @@ WMCP.nativePort.onRequest((tool, params) => WMCP.router.dispatch(tool, params));
 // Connect immediately on every service-worker start. The port stays open for
 // the worker's lifetime and reconnects (with backoff) if the relay dies.
 WMCP.nativePort.connect();
+
+// MV3 can SUSPEND the service worker mid-backoff, which would stall the
+// reconnect forever (e.g. after the MCP server restarts with a new hub). A
+// periodic alarm wakes the worker to retry the native connection even when
+// no other event does. periodInMinutes 0.5 = worst-case ~30 s reconnect.
+try {
+  chrome.alarms.create('webmcp-reconnect', { periodInMinutes: 0.5 });
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === 'webmcp-reconnect' && !WMCP.nativePort.isConnected()) {
+      WMCP.nativePort.connect();
+    }
+  });
+} catch (e) {
+  /* alarms unavailable in this Chrome — top-level connect still applies */
+}
