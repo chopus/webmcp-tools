@@ -32,11 +32,28 @@ if (existsSync(keyPath)) {
   writeFileSync(keyPath, privPem, { mode: 0o600 });
 }
 
-// Extract DER SPKI from the private key's public half.
+// Extract DER SPKI from the private key's public half (for key.pem info only).
 const { createPublicKey } = await import("node:crypto");
 const privKey = await import("node:crypto").then((c) => c.createPrivateKey(privPem));
-const spkiDer = createPublicKey(privKey).export({ type: "spki", format: "der" });
-const manifestKey = spkiDer.toString("base64");
+
+// The extension ID MUST come from the committed manifest "key" field (the
+// base64 DER SPKI), NOT from key.pem: key.pem is gitignored, so a fresh clone
+// would otherwise generate a new key, derive a different ID, and the installer
+// would pin allowed_origins to an extension that does not exist. key.pem is
+// only needed to pack a CRX later.
+let manifestKey = null;
+try {
+  const manifest = JSON.parse(readFileSync(join(root, "extension", "manifest.json"), "utf8"));
+  if (typeof manifest.key === "string" && manifest.key.length > 0) manifestKey = manifest.key;
+} catch (e) { /* manifest unreadable — fall back to key.pem below */ }
+
+let spkiDer;
+if (manifestKey) {
+  spkiDer = Buffer.from(manifestKey, "base64");
+} else {
+  console.error("warning: extension/manifest.json has no key field; deriving the id from key.pem instead (NOT stable across clones)");
+  spkiDer = createPublicKey(privKey).export({ type: "spki", format: "der" });
+}
 
 const hash = createHash("sha256").update(spkiDer).digest("hex").slice(0, 32);
 const extensionId = [...hash].map((h) => String.fromCharCode("a".charCodeAt(0) + parseInt(h, 16))).join("");
