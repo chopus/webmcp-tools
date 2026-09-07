@@ -1,6 +1,7 @@
 export type RunMode =
   | "mcp"
   | "relay"
+  | "flow"
   | "version"
   | "help"
   | "print-mcp-config";
@@ -10,6 +11,7 @@ export type RunMode =
  *
  * - `--version` / `--help` / `--print-mcp-config` are explicit CLI requests.
  * - `--native-host` forces relay mode (used by the launcher scripts).
+ * - `--flow <file>` runs a flow file against the connected browser.
  * - Chrome passes the caller origin (`chrome-extension://<id>/`) as an argv
  *   item when it spawns a native messaging host — that also selects relay
  *   mode.
@@ -21,5 +23,6 @@ export function detectMode(argv: readonly string[]): RunMode {
   if (argv.includes("--print-mcp-config")) return "print-mcp-config";
   if (argv.includes("--native-host")) return "relay";
   if (argv.some((item) => item.startsWith("chrome-extension://"))) return "relay";
+  if (argv.includes("--flow")) return "flow";
   return "mcp";
 }

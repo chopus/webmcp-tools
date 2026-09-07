@@ -11,7 +11,8 @@
     "install-host": "powershell -ExecutionPolicy Bypass -File installer/install-host.ps1",
     "uninstall-host": "powershell -ExecutionPolicy Bypass -File installer/uninstall-host.ps1",
     "e2e": "node scripts/e2e.mjs",
-    "api": "node examples/google-search-api.mjs"
+    "api": "node examples/google-search-api.mjs",
+    "flow": "node server/dist/index.js --flow"
   },
   "devDependencies": {
     "@hono/node-server": "^2.1.1",

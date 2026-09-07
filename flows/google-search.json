@@ -1,0 +1,103 @@
+{
+  "name": "google-search",
+  "description": "Search Google in the connected Chrome, verify the result list, capture a screenshot, close the tab. Set the search term with --var query=…",
+  "vars": {
+    "query": "capybara"
+  },
+  "steps": [
+    {
+      "name": "browser is connected",
+      "tool": "get_browser_info",
+      "expect": [
+        { "path": "chromeVersion", "op": "exists", "desc": "a Chrome answered through the extension" }
+      ]
+    },
+    {
+      "name": "open results page",
+      "tool": "new_tab",
+      "args": {
+        "url": "https://www.google.com/search?q={{query|uri}}",
+        "active": true
+      },
+      "save": "tab",
+      "saveFrom": "tab",
+      "expect": [
+        { "path": "tab.tabId", "op": "type", "type": "number" }
+      ],
+      "retries": 1
+    },
+    {
+      "name": "dismiss consent banner if shown",
+      "tool": "evaluate",
+      "args": {
+        "tabId": "{{tab.tabId}}",
+        "world": "MAIN",
+        "function": "(args) => { const btn = document.querySelector('#L2AGLb') || Array.from(document.querySelectorAll('button, div[role=button]')).find((b) => /^(accept all|reject all|alle akzeptieren|tout accepter)$/i.test((b.textContent || '').trim())); if (btn) { btn.click(); return 'clicked'; } return 'absent'; }"
+      },
+      "expect": [
+        { "path": "result", "op": "in", "value": ["clicked", "absent"], "desc": "EU profiles see a consent page before results" }
+      ],
+      "retries": 2,
+      "retryDelayMs": 1000,
+      "optional": true
+    },
+    {
+      "name": "results have loaded",
+      "tool": "wait_for",
+      "args": {
+        "tabId": "{{tab.tabId}}",
+        "text": "{{query}}",
+        "timeoutMs": 15000
+      },
+      "retries": 2,
+      "retryDelayMs": 2000
+    },
+    {
+      "name": "parse the results page",
+      "tool": "evaluate",
+      "args": {
+        "tabId": "{{tab.tabId}}",
+        "world": "MAIN"
+      },
+      "functionFile": "lib/google-search.js",
+      "save": "page",
+      "saveFrom": "result",
+      "expect": [
+        { "path": "result.url", "op": "matches", "regex": "^https?://(www\\.)?google\\.[a-z.]+/search" },
+        { "path": "result.query", "op": "equals", "value": "{{query}}" },
+        { "path": "result.results", "op": "lengthGte", "value": 1 },
+        { "path": "result.results.0.title", "op": "type", "type": "string" },
+        { "path": "result.results.0.href", "op": "type", "type": "string", "desc": "first organic result carries a link" }
+      ],
+      "retries": 2,
+      "retryDelayMs": 1000
+    },
+    {
+      "name": "bring the window forward",
+      "tool": "activate_tab",
+      "args": { "tabId": "{{tab.tabId}}" },
+      "optional": true
+    },
+    {
+      "name": "screenshot the results",
+      "tool": "screenshot",
+      "args": {
+        "tabId": "{{tab.tabId}}",
+        "format": "jpeg",
+        "quality": 75,
+        "maxWidth": 1200
+      },
+      "retries": 1,
+      "retryDelayMs": 1000,
+      "optional": true
+    }
+  ],
+  "finally": [
+    {
+      "name": "close the tab",
+      "tool": "close_tab",
+      "args": { "tabId": "{{tab.tabId}}" },
+      "optional": true
+    }
+  ]
+}

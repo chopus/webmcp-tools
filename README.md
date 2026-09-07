@@ -94,16 +94,18 @@ For exact parameters, defaults, and result contracts, read
 | `demos/shared/webmcp-polyfill.js` | Vendored WebMCP polyfill (Apache-2.0) |
 | `examples/google-search.mjs` | Search in your real browser: read results, click "Next", take a screenshot |
 | `examples/google-search-api.mjs` | REST service: `POST /search` controls your Chrome and returns the results |
+| `flows/google-search.json` | Flow file: the same Google search with retries, assertions, and an HTML report. Run `npm run flow -- flows/google-search.json --var query=capybara` |
 
 ## Layout
 
 | Path | What it contains |
 |---|---|
 | `extension/` | MV3 Chrome extension (plain JavaScript, no build step) |
-| `server/` | MCP server, native relay, and hub (TypeScript) |
+| `server/` | MCP server, native relay, hub, and flow runner (TypeScript) |
 | `installer/` | Native messaging host installers (Windows / macOS / Linux) |
 | `demos/` | WebMCP demo pages and automation test pages |
 | `examples/` | Runnable example scripts |
+| `flows/` | Flow files you run with `npm run flow -- <file.json>` |
 | `docs/` | Architecture, protocol, features, and usage guides |
 | `scripts/` | Repository tooling (extension key, icons, E2E runner) |
 | `test/` | E2E test that drives a real Chrome through the full stack |
@@ -112,11 +114,12 @@ For the design rationale, read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Status
 
-The project works end to end. The server has 44 unit tests. The E2E suite has
-53 steps. It loads the unpacked extension into a real installed Chrome. It
+The project works end to end. The server has 106 unit tests. The E2E suite has
+54 steps. It loads the unpacked extension into a real installed Chrome. It
 exercises 26 of the 27 tools through the complete chain: MCP client, hub,
 native relay, extension. The suite also runs while a daily Chrome stays
-connected to the same server.
+connected to the same server. The flow runner and its Google search parser
+were tested against the same daily Chrome.
 
 ## Roadmap — known gaps and future updates
 
@@ -134,7 +137,7 @@ connected to the same server.
 ### Product-level gaps
 
 - [ ] **Recorder** — There is no record mode. You cannot record your manual actions and get a replayable script.
-- [ ] **Flow runner** — There is no command to run a flow file with retries, assertions, and HTML reports. The REST example keeps its queue in memory only. It does not persist jobs.
+- [ ] **REST queue persistence** — The flow runner runs a flow file with retries, assertions, and HTML reports (`npm run flow -- flows/google-search.json`). But the REST example keeps its queue in memory only. It does not persist jobs.
 - [ ] **Disposable browsers** — The tools control connected browsers only. They cannot start a fresh isolated profile for each job. Only the E2E harness does this, through CDP.
 - [ ] **stdio-only MCP** — The server supports the stdio transport only. Remote agents cannot connect from another machine. The server also accepts one MCP client at a time. See the hub-file race in `docs/USAGE.md`.
 - [ ] **Distribution** — The package is not on npm. There is no installer for non-developers. There is no CI configuration in `.github/workflows`. There are no releases, tags, or changelog.

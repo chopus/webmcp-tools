@@ -12,3 +12,4 @@ installer/*.generated.*
 .env
 
 .tmp/
+reports/

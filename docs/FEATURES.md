@@ -105,7 +105,14 @@ connected browser. Interaction tools target elements by `ref` (from
   before you load it.
 - **Installers for all platforms.** Windows (HKCU, no admin; Chrome and
   Edge), macOS, and Linux.
-- **Tested.** The server has 44 unit tests. The E2E suite has 54 steps. It
+- **Flow runner.** A flow file is plain JSON: a list of tool calls with
+  variables, assertions, retries, and cleanup steps. One command runs it
+  against the connected browser and writes an HTML report with embedded
+  screenshots plus a JSON report. Exit code 0 means every required step
+  passed. Page-side parsers live in real JavaScript files
+  (`flows/lib/google-search.js`) and flow steps load them with
+  `functionFile`. See [`USAGE.md`](USAGE.md#flows).
+- **Tested.** The server has 106 unit tests. The E2E suite has 54 steps. It
   drives a real installed Chrome through the complete chain. The suite was
   verified while the daily Chrome of the developer stayed connected to the
   same server.
@@ -120,6 +127,9 @@ connected browser. Interaction tools target elements by `ref` (from
   {"query":"…","pages":2}`. The service controls your real Chrome and
   returns structured results as JSON or a rendered HTML page. Start it with
   `npm run api`.
+- [`flows/google-search.json`](../flows/google-search.json) — The same search
+  as a flow file: consent handling, result assertions, a screenshot, and tab
+  cleanup. Start it with `npm run flow -- flows/google-search.json`.
 - `demos/` — WebMCP store (imperative tools), declarative reservation form,
   and a deterministic automation playground. See
   [`USAGE.md`](USAGE.md#demos).

@@ -2,12 +2,14 @@
 /**
  * webmcp-browser — MCP server + native messaging host for webmcp-tools.
  *
- * One binary, two modes:
+ * One binary, three modes:
  *  - MCP mode (default): speak MCP over stdio and host the TCP hub that the
  *    Chrome extension's native relay connects to.
  *  - Relay mode (--native-host, or a chrome-extension://... origin in argv,
  *    which Chrome passes when it spawns a native messaging host): bridge
  *    native-messaging frames on stdio to the hub TCP socket.
+ *  - Flow mode (--flow <file>): run a flow file with retries, assertions,
+ *    and an HTML report against the connected browser.
  */
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,12 +26,15 @@ const USAGE = `webmcp-browser ${VERSION} — MCP server + Chrome native-messagin
 Usage:
   webmcp-browser                     MCP server mode over stdio (default)
   webmcp-browser --native-host       Relay mode: native messaging <-> hub TCP
+  webmcp-browser --flow <flow.json>  Run a flow file (retries, assertions, HTML report)
   webmcp-browser --print-mcp-config  Print an MCP client config snippet (JSON)
   webmcp-browser --version           Print the version
   webmcp-browser --help              Show this help
 
 Relay mode is auto-detected: Chrome passes the extension origin
 (chrome-extension://<id>/) as an argument, which selects relay mode.
+Flow mode takes the same options as the npm script: npm run flow --
+flows/google-search.json --var query=capybara.
 
 Environment:
   WEBMCP_HUB_FILE  Override the hub discovery file location
@@ -92,6 +97,12 @@ async function main(): Promise<void> {
     case "relay":
       await runRelay();
       break;
+    case "flow": {
+      // Dynamic import: MCP and relay mode should not load flow-mode code.
+      const { runFlowMode } = await import("./flow/run.js");
+      const exitCode = await runFlowMode(process.argv.slice(2));
+      process.exit(exitCode);
+    }
     case "mcp":
       await runMcpMode();
       break;
@@ -106,6 +117,11 @@ process.on("unhandledRejection", (reason) => {
 });
 
 main().catch((error) => {
-  log(`fatal: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
+  // Flow-mode CLI errors (bad file, unknown option) are user messages, not crashes.
+  if (error instanceof Error && error.name === "FlowError") {
+    log(`error: ${error.message}`);
+  } else {
+    log(`fatal: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
+  }
   process.exitCode = 1;
 });

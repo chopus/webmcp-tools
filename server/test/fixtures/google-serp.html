@@ -1,0 +1,90 @@
+<!doctype html>
+<!--
+  Synthetic Google results page for parser unit tests. The tag structure and
+  the selector-bearing attributes (#search, a+h3, cite, .VuuXrf,
+  div[data-sncf]>.VwiC3b, #tads, div[data-initq], #bres, #pnnext,
+  #result-stats) mirror a live SERP captured in September 2026; all text and
+  URLs are invented. Google renames obfuscated classes (zReHs, LC20lb,
+  qLRx3b, VwiC3b …) at any time — the parser must survive renamed HINT
+  classes, and extra tests below cover those degraded variants.
+-->
+<html>
+<head><title>test query - Google Search</title></head>
+<body>
+<div id="result-stats">About 12.300.000 results (0,42&nbsp;s)</div>
+
+<div id="tads">
+  <div data-text-ad>
+    <a data-ad href="https://ad.example.com/buy-now"><h3>Sponsored Keyboards Buy Now</h3>
+      <span class="VuuXrf">Ad · shop.example</span></a>
+  </div>
+</div>
+
+<div id="search">
+  <div id="rso">
+    <div class="result-block" data-hveid="10">
+      <a class="zReHs" href="https://www.rtings.com/keyboard/reviews/best">
+        <h3 class="LC20lb MBeuO DKV0Md">The 6 Best Gaming Keyboards of 2026</h3>
+        <div class="notranslate ESMNde HGLrXd ojE3Fb"><div class="q0vns">
+          <span class="DDKf1c"><img alt="" src="data:,"></span>
+          <span class="VuuXrf">RTINGS</span>
+          <cite class="qLRx3b tjvcx GvPZzd cHaqb">https://www.rtings.com</cite>
+        </div></div>
+      </a>
+      <div class="kb0PBd A9Y9g" data-sncf="1">
+        <div class="VwiC3b yXK7lf p4wth">We tested 200 keyboards. These are the six best for gaming, with fast switches and low latency.</div>
+      </div>
+    </div>
+
+    <div class="result-block" data-hveid="20">
+      <a class="zReHs" href="https://www.pcmag.com/picks/best-mechanical-keyboards">
+        <h3 class="LC20lb MBeuO DKV0Md">The Best Mechanical Keyboards We Have Tested</h3>
+        <div class="notranslate ESMNde HGLrXd ojE3Fb"><div class="q0vns">
+          <span class="DDKf1c"><img alt="" src="data:,"></span>
+          <span class="VuuXrf">PCMag</span>
+          <cite class="qLRx3b tjvcx GvPZzd cHaqb">https://www.pcmag.com</cite>
+        </div></div>
+      </a>
+      <div class="kb0PBd A9Y9g" data-sncf="1">
+        <div class="VwiC3b yXK7lf p4wth">Our pick for most people is a hot-swappable 75% board with a rotary knob.</div>
+      </div>
+    </div>
+
+    <!-- result with no href attribute (JS-wired anchor seen on live pages) -->
+    <div class="result-block" data-hveid="30">
+      <a class="zReHs">
+        <h3 class="LC20lb MBeuO DKV0Md">Best Gaming Keyboards 2026: Full-size, TKL</h3>
+      </a>
+      <div class="kb0PBd A9Y9g" data-sncf="1">
+        <div class="VwiC3b">A round-up of every form factor with latency measurements.</div>
+      </div>
+    </div>
+
+    <!-- video result: metadata row, no text snippet of its own -->
+    <div class="result-block" data-hveid="40">
+      <a class="zReHs" href="https://www.youtube.com/watch?v=example">
+        <h3 class="LC20lb MBeuO DKV0Md">The Best Keyboard at Every Price (2026)</h3>
+        <div class="notranslate ESMNde HGLrXd ojE3Fb"><div class="q0vns">
+          <span class="VuuXrf">YouTube</span>
+          <cite class="qLRx3b tjvcx GvPZzd cHaqb">95K+ views · 6 months ago</cite>
+        </div></div>
+      </a>
+    </div>
+
+    <div data-initq="best keyboard">
+      <div><div role="heading">What keyboard do pro gamers use?</div></div>
+      <div><div role="heading">Are mechanical keyboards louder?</div></div>
+    </div>
+  </div>
+</div>
+
+<div id="bres">
+  <a href="https://www.google.com/search?q=best+60+percent+keyboard">best 60 percent keyboard</a>
+  <a href="https://www.google.com/search?q=hall+effect+keyboard">hall effect keyboard</a>
+</div>
+
+<div role="navigation">
+  <a id="pnnext" href="/search?q=test+query&amp;start=10"><span>Next</span></a>
+</div>
+</body>
+</html>

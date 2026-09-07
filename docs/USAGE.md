@@ -27,6 +27,7 @@ contract, read [`PROTOCOL.md`](PROTOCOL.md).
 - [WebMCP: page-exposed tools](#webmcp-page-exposed-tools)
 - [Demos](#demos)
 - [Examples](#examples)
+- [Flows](#flows)
 - [Security and privacy](#security-and-privacy)
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
@@ -293,6 +294,108 @@ extension:
 |---|---|
 | `examples/google-search.mjs` | Search on the command line in your real browser. The script reads the results, clicks "Next" through a snapshot ref (with URL fallback), and takes a screenshot. Run: `node examples/google-search.mjs "axolotl" 3` |
 | `examples/google-search-api.mjs` | REST automation service (Hono). Run `npm run api`. Then send `POST /search {"query":"capybara","pages":2}`. The service controls your Chrome and returns the results as JSON. For a browser it returns a rendered HTML page. Options: `pages`, `screenshot` (data-URL and a copy in `.tmp/`), `instanceId`, `keepTab`. `GET /health` reports connected browsers. `GET /` serves a form that posts and shows the response. A FIFO queue serializes concurrent requests. Search tabs close automatically unless you set `keepTab: true`. |
+| `flows/google-search.json` | The same search as a flow file. Run `npm run flow -- flows/google-search.json --var query=capybara`. See [Flows](#flows). |
+
+## Flows
+
+A **flow file** is a JSON playbook for the connected browser: a list of tool
+calls with variables, assertions, retries, and cleanup. One command runs it
+and writes a report. No MCP client is needed — the command starts its own
+hub, and the extension connects to it like always.
+
+```bash
+npm run flow -- flows/google-search.json --var query=capybara
+```
+
+The command prints one line per step and exits with code 0 when every
+required step passed. It writes two files into `reports/`:
+
+- `<flow>-<timestamp>.html` — a self-contained report: per-step status,
+  duration, attempts, assertions, errors, and embedded screenshots.
+- `<flow>-<timestamp>.json` — the same data as machine-readable JSON.
+
+### Command options
+
+| Option | Meaning |
+|---|---|
+| `--var name=value` | Set a flow variable. Repeatable. Numbers and `true`/`false` are parsed as such. Overrides the `vars` in the file. |
+| `--out-dir <dir>` | Report directory. Default `reports`. |
+| `--instance-id <id>` | Pin one connected browser (id from `get_browser_info`). Default: the most recently connected browser with a real profile id. |
+| `--browser-timeout-ms <ms>` | How long to wait for a browser. Default 60000. |
+
+### Flow file format
+
+```json
+{
+  "name": "google-search",
+  "description": "…",
+  "vars": { "query": "capybara" },
+  "steps": [ { "name": "…", "tool": "…", "args": {…}, "expect": […] } ],
+  "finally": [ { "name": "close the tab", "tool": "close_tab", "args": { "tabId": "{{tab.tabId}}" } } ]
+}
+```
+
+Each step calls one tool from the catalog above. Step fields:
+
+| Field | Meaning |
+|---|---|
+| `name` | Label used in the console output and the report. |
+| `tool` | Any tool name from the catalog. Unknown names fail before the flow starts. |
+| `args` | Tool arguments. `{{…}}` templates are replaced first (see below). |
+| `functionFile` | `evaluate` only: load the page-side function from a JavaScript file instead of an inline `args.function` string. The path is relative to the flow file. The file must be one function expression — see `flows/lib/google-search.js` for the pattern. |
+| `expect` | Assertions on the tool result. A failed assertion triggers a retry, and after the last retry fails the step. |
+| `retries` | Retries after the first failed attempt. Default 0. |
+| `retryDelayMs` | Delay between attempts. Default 1000. |
+| `timeoutMs` | Hub timeout for the tool call. Default 120000. |
+| `save` / `saveFrom` | Store the result (or the part of it at the `saveFrom` path) under a variable name for later steps. Example: `save: "tab"`, `saveFrom: "tab"` stores `result.tab`, so later steps use `{{tab.tabId}}`. |
+| `when` | A condition on the current variables. When it does not hold, the step is skipped. Useful for optional banners and region-dependent pages. |
+| `optional` | When `true`, a failure after the retries marks the step "soft" and the flow continues. |
+
+Assertion operators (`{"path": "result.count", "op": "gte", "value": 1}`):
+
+| Operator | Passes when |
+|---|---|
+| `exists` | The value at `path` is not `undefined` or `null`. |
+| `equals` / `notEquals` | The value equals (or does not equal) `value`. |
+| `contains` | A string contains `value`; an array contains the item; an object has the key. |
+| `matches` | `String(value)` matches the `regex` source. |
+| `in` | The value is one of the items of `value` (an array). |
+| `gt`, `gte`, `lt`, `lte` | Numeric comparison against `value`. |
+| `type` | The type is `value`: `string`, `number`, `boolean`, `object`, `array`. |
+| `lengthGte`, `lengthLte` | The length of a string or array compares against `value`. |
+
+A `path` uses dot segments and array indices: `result.results.0.title`.
+Templates work in assertion operands and `when` conditions too:
+`{ "path": "result.query", "op": "equals", "value": "{{query}}" }`.
+
+### Variables and templates
+
+`vars` hold the inputs. `--var` overrides them. `save` adds results as new
+variables. Inside `args` strings:
+
+- `{{query}}` inserts the variable `query`.
+- `{{tab.tabId}}` reads a path inside a saved result.
+- `{{query|uri}}` applies a filter. The only filter today is `uri`
+  (URI-component encoding).
+- A string that is exactly one template keeps the value type. `"{{tab.tabId}}"`
+  becomes a number, not a string.
+
+### Step statuses
+
+| Status | Meaning |
+|---|---|
+| `PASS` | The tool call and all assertions passed. |
+| `FAIL` | The step failed after all retries. The flow stops; the remaining steps are skipped; `finally` still runs. |
+| `SOFT` | The step failed but was `optional`. The flow continues. |
+| `SKIP` | The `when` condition did not hold, or the step was never reached. |
+
+A full example lives at [`flows/google-search.json`](../flows/google-search.json):
+it handles the EU consent banner, waits for the results, parses the page with
+[`flows/lib/google-search.js`](../flows/lib/google-search.js), asserts that
+Google returned at least one linked result, takes a screenshot, and closes the
+tab in `finally`. The parser is a plain page-side function — any MCP agent can
+also send it directly through the `evaluate` tool, and its unit tests run
+against `server/test/fixtures/google-serp.html`.
 
 A full feature tour lives in [`FEATURES.md`](FEATURES.md).
 
@@ -389,13 +492,16 @@ build, installs the host when necessary, and stops every process it started.
 **Two servers, one hub file.** Use only one MCP client at a time per user.
 Each server run rewrites `os.tmpdir()/webmcp-tools-hub.json` with its own
 port and token. A relay that reconnects connects to the hub that wrote the
-file last.
+file last. The server that `npm run flow` starts follows the same rule: it
+takes over the hub file while a flow runs, and it removes the file when the
+flow ends.
 
 ## Development
 
 ```bash
 npm test      # server unit tests (runs in server/)
 npm run e2e   # full-stack E2E: real Chrome + extension + native host + MCP client
+npm run flow -- flows/google-search.json   # run a flow file (needs a connected browser)
 ```
 
 ### Dual-remote workflow (public + private)

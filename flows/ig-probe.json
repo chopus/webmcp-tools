@@ -1,0 +1,87 @@
+{
+  "name": "ig-probe",
+  "description": "Compare two ways to read an Instagram profile id from the connected browser: (a) regex the static HTML for \"profile_id\", (b) the CDP network capture that would have to carry \"pk\". Probes one profile and reports both sides so the approaches can be compared. Set the account with --var user=…",
+  "vars": {
+    "user": "highlightimnas"
+  },
+  "steps": [
+    {
+      "name": "browser is connected",
+      "tool": "get_browser_info",
+      "expect": [
+        { "path": "chromeVersion", "op": "exists", "desc": "a Chrome answered through the extension" }
+      ]
+    },
+    {
+      "name": "open a blank tab",
+      "tool": "new_tab",
+      "args": { "url": "about:blank", "active": true },
+      "save": "tab",
+      "saveFrom": "tab",
+      "expect": [
+        { "path": "tab.tabId", "op": "type", "type": "number" }
+      ]
+    },
+    {
+      "name": "attach debugger and start network capture before navigation",
+      "tool": "get_network_requests",
+      "args": { "tabId": "{{tab.tabId}}", "lastN": 5 },
+      "save": "netBefore",
+      "saveFrom": "requests"
+    },
+    {
+      "name": "navigate to the profile",
+      "tool": "navigate",
+      "args": {
+        "tabId": "{{tab.tabId}}",
+        "url": "https://www.instagram.com/{{user}}/"
+      },
+      "retries": 1
+    },
+    {
+      "name": "profile header appears",
+      "tool": "wait_for",
+      "args": { "tabId": "{{tab.tabId}}", "selector": "header", "timeoutMs": 15000 },
+      "retries": 1,
+      "optional": true,
+      "desc": "optional so a login wall still gets its HTML inspected below"
+    },
+    {
+      "name": "extract ids from the HTML",
+      "tool": "evaluate",
+      "args": { "tabId": "{{tab.tabId}}", "world": "MAIN" },
+      "functionFile": "lib/ig-profile.js",
+      "save": "html",
+      "saveFrom": "result",
+      "expect": [
+        { "path": "result.url", "op": "matches", "regex": "^https://www\\.instagram\\.com/", "desc": "stayed on instagram (no login redirect)" }
+      ],
+      "retries": 2,
+      "retryDelayMs": 1500
+    },
+    {
+      "name": "read the captured network requests (api/graph calls carry pk)",
+      "tool": "get_network_requests",
+      "args": { "tabId": "{{tab.tabId}}", "urlContains": "instagram", "lastN": 100 },
+      "save": "netAfter",
+      "saveFrom": "requests",
+      "expect": [
+        { "path": "requests", "op": "type", "type": "array", "desc": "capture saw the page load" }
+      ]
+    },
+    {
+      "name": "stop network capture and detach the debugger",
+      "tool": "stop_network_capture",
+      "args": { "tabId": "{{tab.tabId}}" },
+      "optional": true
+    }
+  ],
+  "finally": [
+    {
+      "name": "close the tab",
+      "tool": "close_tab",
+      "args": { "tabId": "{{tab.tabId}}" },
+      "optional": true
+    }
+  ]
+}

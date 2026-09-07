@@ -32,4 +32,10 @@ describe("detectMode", () => {
   it("--print-mcp-config", () => {
     expect(detectMode(["--print-mcp-config"])).toBe("print-mcp-config");
   });
+
+  it("--flow selects flow mode (relay markers still win)", () => {
+    expect(detectMode(["--flow", "flows/google-search.json"])).toBe("flow");
+    expect(detectMode(["--flow", "f.json", "--var", "query=x"])).toBe("flow");
+    expect(detectMode(["--native-host", "--flow", "f.json"])).toBe("relay");
+  });
 });

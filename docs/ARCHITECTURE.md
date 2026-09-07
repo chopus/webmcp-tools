@@ -52,7 +52,7 @@ user.
 
 ### Process and transport details
 
-- **One binary, two modes.** `server/dist/index.js` detects its mode:
+- **One binary, three modes.** `server/dist/index.js` detects its mode:
   - An **MCP client** started the process. Stdin carries line-delimited
     JSON-RPC. The process runs the MCP server and the TCP **hub**. The hub
     listens on `127.0.0.1` on an ephemeral port.
@@ -60,6 +60,11 @@ user.
     contains `chrome-extension://…`, or the flag `--native-host` is set).
     Stdin carries length-prefixed frames. The process runs the **relay**.
     The relay converts between native-messaging frames and hub TCP lines.
+  - **`--flow <file>`** started the process. The process runs the hub and a
+    **flow runner**. The flow runner waits for a browser, executes the flow
+    file through `hub.request` (the same path the MCP tools take), prints
+    one line per step, and writes an HTML and a JSON report. See
+    [`USAGE.md`](USAGE.md#flows).
 - **Discovery and authentication.** At startup the hub writes
   `os.tmpdir()/webmcp-tools-hub.json`. The file contains `{ port, token }`
   and has owner-only permissions. A clean shutdown deletes it. The relay
@@ -141,10 +146,11 @@ automation tools stay available for pages without tools.
 
 ```
 extension/    MV3 Chrome extension (plain JavaScript, no build step)
-server/       MCP server + native relay + hub (TypeScript → dist/)
+server/       MCP server + native relay + hub + flow runner (TypeScript → dist/)
 installer/    Native-host installers (Win/macOS/Linux)
 demos/        WebMCP demo pages + automation test pages (static HTML)
 examples/     Runnable example scripts (google-search.mjs, …)
+flows/        Flow files you run with --flow (google-search.json, …)
 docs/         ARCHITECTURE.md, PROTOCOL.md, FEATURES.md, USAGE.md
 scripts/      Repository tooling (key generation, icons, E2E runner)
 test/         E2E test that drives a real Chrome through the full stack
