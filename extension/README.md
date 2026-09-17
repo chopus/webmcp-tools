@@ -49,6 +49,25 @@ Once loaded, the extension immediately tries to connect to the native host;
 if the MCP server is not running yet it retries with backoff (1s, 2s, 5s,
 10s … capped at 30s). The connection becomes active as soon as the hub is up.
 
+## Kill switch
+
+The toolbar icon opens a popup with a manual **Agent control** ON/OFF switch:
+
+- **ON** (default): the native-messaging port connects (or keeps retrying
+  with the usual backoff). The toolbar badge shows a green **ON**.
+- **OFF**: the native port is disconnected and *all* reconnection attempts
+  stop — including the periodic alarm retry. Every MCP tool call from the
+  agent side then fails with `extension_not_connected`, while your own
+  browsing in every tab keeps working normally. The badge shows a gray
+  **OFF**.
+
+The state is the boolean `agentControlEnabled` in `chrome.storage.local`
+(missing key = enabled), so it persists across Chrome restarts — the badge is
+refreshed on startup and the port stays halted until you switch back ON.
+Toggling from the popup also works while the service worker is suspended:
+the `chrome.storage.onChanged` listener wakes it and applies the state
+(badge + connect/halt).
+
 ## Extension ID is pinned
 
 `manifest.json` contains a committed `"key"` field (the DER public key). This pins the
@@ -67,6 +86,7 @@ background/service-worker.js  entry point: importScripts the libs, connects
                               the native port at top level
 background/lib/               service-worker libraries (classic scripts)
   util.js                     errors, param validation, key parsing
+  control.js                  agent-control kill switch (badge, connect/halt)
   native-port.js              connectNative + backoff + extensionHello
   router.js                   tool name -> handler map (all 27 tools)
   tabs.js                     tab resolution/serialization/nav waiting
@@ -78,6 +98,7 @@ background/lib/               service-worker libraries (classic scripts)
   webmcp.js                   WebMCP discovery/execution (MAIN world)
   automation.js               interaction tools + evaluate
 content/content.js            content script (single classic IIFE)
+popup.html / popup.js         toolbar popup: agent-control kill switch
 lib/webmcp-polyfill.js        vendored WebMCP polyfill (Apache-2.0,
                               GoogleChromeLabs/webmcp-tools)
 ```

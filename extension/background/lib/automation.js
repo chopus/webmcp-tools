@@ -1,10 +1,14 @@
 /**
  * WebMCP Tools — interaction tools (click / type_text / press_key / hover /
- * scroll / select_option / drag) and `evaluate`.
+ * scroll / select_option / drag / upload_file) and `evaluate`.
  *
  * DOM mode (default): the content script locates the element (ref or
  * selector) and runs its synthetic-event interaction. Trusted mode:
  * chrome.debugger CDP input at the element's viewport-center coordinates.
+ * click additionally accepts raw {x, y} viewport coordinates (always trusted
+ * CDP input). Element targets resolve frame-aware: snapshot refs translate
+ * through the content-bridge frame map and selectors fall back to frame
+ * iteration on not-found.
  */
 (function (global) {
   'use strict';
@@ -43,9 +47,19 @@
     return button === 'right' || button === 'middle' ? button : 'left';
   }
 
-  async function locate(tabId, target) {
-    const res = await NS.contentBridge.askTab(tabId, { type: 'locate', scroll: true, ...target });
-    return res;
+  /**
+   * Frame-aware locate: translates snapshot refs through the frame map and
+   * falls back to frame iteration on not-found. `scroll:false` keeps the
+   * pre-flight locate side-effect free (origin-policy submit checks).
+   */
+  function locate(tabId, target, scroll) {
+    const msg = { type: 'locate', scroll: scroll !== false };
+    if (target && target.x !== undefined) {
+      msg.x = target.x;
+      msg.y = target.y;
+      return NS.contentBridge.askTab(tabId, msg);
+    }
+    return NS.contentBridge.askTargeted(tabId, msg, target);
   }
 
   function withText(loc) {
@@ -62,11 +76,42 @@
     return U.withTimeout(promise, ms, `tool timed out after ${ms}ms`);
   }
 
+  /**
+   * Validate an optional {x, y} coordinate pair (viewport CSS px). Returns
+   * null when neither coordinate is present; EARGS when only one is.
+   */
+  function optCoords(params) {
+    const hasX = params.x !== undefined && params.x !== null;
+    const hasY = params.y !== undefined && params.y !== null;
+    if (!hasX && !hasY) return null;
+    if (!hasX || !hasY) throw U.err('x and y must be provided together', 'EARGS');
+    const x = Number(params.x);
+    const y = Number(params.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      throw U.err('x and y must be finite numbers (viewport CSS pixels)', 'EARGS');
+    }
+    return { x, y };
+  }
+
   async function click(tab, params) {
-    const target = pickTarget(params, 'ref', 'selector', true);
     const button = normalizeButton(params.button);
     const clickCount = U.optInt(params, 'clickCount', 1);
     const modifiers = U.optStrArray(params, 'modifiers', []);
+    const coords = optCoords(params);
+    if (coords) {
+      if ((params.ref !== undefined && params.ref !== null) ||
+          (params.selector !== undefined && params.selector !== null)) {
+        throw U.err('provide one of ref / selector / x,y — not several', 'EARGS');
+      }
+      // Synthetic events need an element, so coordinates ALWAYS go through
+      // trusted CDP input (the `trusted` flag is irrelevant here).
+      await timed(params, 5000, NS.cdp.withDebugger(tab.id, (command) =>
+        NS.cdp.trustedClick(command, {
+          x: coords.x, y: coords.y, button, clickCount, modifiers
+        })));
+      return { clicked: true };
+    }
+    const target = pickTarget(params, 'ref', 'selector', true);
     if (U.optBool(params, 'trusted', false)) {
       const loc = await timed(params, 5000, locate(tab.id, target));
       await timed(params, 5000, NS.cdp.withDebugger(tab.id, (command) =>
@@ -75,8 +120,8 @@
         })));
       return Object.assign({ clicked: true }, withText(loc));
     }
-    const res = await timed(params, 5000, NS.contentBridge.askTab(tab.id, Object.assign(
-      { type: 'click', button, clickCount, modifiers }, target)));
+    const res = await timed(params, 5000, NS.contentBridge.askTargeted(tab.id,
+      { type: 'click', button, clickCount, modifiers }, target));
     return Object.assign({ clicked: true }, withText(res));
   }
 
@@ -101,8 +146,8 @@
       }));
       return { typed: true };
     }
-    await timed(params, 10000, NS.contentBridge.askTab(tab.id, Object.assign(
-      { type: 'type_text', text, clearFirst, submit }, target)));
+    await timed(params, 10000, NS.contentBridge.askTargeted(tab.id,
+      { type: 'type_text', text, clearFirst, submit }, target));
     return { typed: true };
   }
 
@@ -124,8 +169,7 @@
       return { pressed: true };
     }
     const msg = { type: 'press_key', key };
-    if (target) Object.assign(msg, target);
-    await timed(params, 5000, NS.contentBridge.askTab(tab.id, msg));
+    await timed(params, 5000, NS.contentBridge.askTargeted(tab.id, msg, target));
     return { pressed: true };
   }
 
@@ -139,7 +183,7 @@
         NS.cdp.trustedMouseMove(command, res.x, res.y, 0)));
       return { hovered: true };
     }
-    await timed(params, 5000, NS.contentBridge.askTab(tab.id, Object.assign({ type: 'hover' }, target)));
+    await timed(params, 5000, NS.contentBridge.askTargeted(tab.id, { type: 'hover' }, target));
     return { hovered: true };
   }
 
@@ -150,8 +194,7 @@
     const amount = Math.max(0, U.optInt(params, 'amount', 600));
     const smooth = U.optBool(params, 'smooth', true);
     const msg = { type: 'scroll', direction, amount, smooth };
-    if (target) Object.assign(msg, target);
-    const res = await NS.contentBridge.askTab(tab.id, msg);
+    const res = await NS.contentBridge.askTargeted(tab.id, msg, target);
     return { scrollX: res.scrollX, scrollY: res.scrollY };
   }
 
@@ -164,8 +207,8 @@
         throw U.err('index must be a non-negative integer', 'EARGS');
       }
     }
-    const res = await timed(params, 5000, NS.contentBridge.askTab(tab.id, Object.assign(
-      { type: 'select_option', [which]: params[which] }, target)));
+    const res = await timed(params, 5000, NS.contentBridge.askTargeted(tab.id,
+      { type: 'select_option', [which]: params[which] }, target));
     if (!Array.isArray(res.selected)) {
       throw U.err('select_option got an invalid response', 'EEXECUTION');
     }
@@ -199,6 +242,20 @@
       }));
       return { dragged: true };
     }
+    // DOM mode: a synthetic drag must run in ONE frame. When both refs map to
+    // the same frame, send the translated local refs there; otherwise fall
+    // back to the frame scan (main-frame refs are identical globally, since
+    // the main frame always renumbers from base 0).
+    const fromLoc = from.ref !== undefined
+      ? NS.contentBridge.translateRef(tab.id, from.ref) : null;
+    const toLoc = to.ref !== undefined
+      ? NS.contentBridge.translateRef(tab.id, to.ref) : null;
+    if (fromLoc && toLoc && fromLoc.frameId === toLoc.frameId) {
+      await timed(params, 8000, NS.contentBridge.askFrame(tab.id, fromLoc.frameId, {
+        type: 'drag', fromRef: fromLoc.localRef, toRef: toLoc.localRef
+      }));
+      return { dragged: true };
+    }
     const msg = {
       type: 'drag',
       [from.ref !== undefined ? 'fromRef' : 'fromSelector']:
@@ -206,8 +263,49 @@
       [to.ref !== undefined ? 'toRef' : 'toSelector']:
         to.ref !== undefined ? to.ref : to.selector
     };
-    await timed(params, 8000, NS.contentBridge.askTab(tab.id, msg));
+    await timed(params, 8000, NS.contentBridge.askFrames(tab.id, msg));
     return { dragged: true };
+  }
+
+  // ---- upload_file ------------------------------------------------------------
+  //
+  // Real file selection cannot be synthesized (no FilePicker step from page
+  // JS), so the path is set directly on the <input type=file> node via CDP
+  // DOM.setFileInputFiles.
+
+  async function uploadFile(tab, params) {
+    const path = U.reqStr(params, 'path');
+    const target = pickTarget(params, 'ref', 'selector', true);
+
+    // DOM.setFileInputFiles addresses the node by CSS selector; refs are
+    // resolved through a locate that reports a unique cssSelector.
+    let selector = target.selector;
+    try {
+      if (!selector) {
+        const loc = await timed(params, 5000, locate(tab.id, target));
+        if (!loc || !loc.cssSelector) {
+          throw U.err('could not derive a CSS selector for the upload target', 'EUPLOAD');
+        }
+        selector = loc.cssSelector;
+      }
+      await timed(params, 10000, NS.cdp.withDebugger(tab.id, async (command) => {
+        await command('DOM.enable', {});
+        const doc = await command('DOM.getDocument', {});
+        const rootId = doc && doc.root && doc.root.nodeId;
+        if (!rootId) throw U.err('DOM.getDocument returned no root node', 'EUPLOAD');
+        const node = await command('DOM.querySelector', { nodeId: rootId, selector });
+        if (!node || !node.nodeId) {
+          throw U.err(`no element matches selector "${selector}" for upload`, 'EUPLOAD');
+        }
+        await command('DOM.setFileInputFiles', { files: [path], nodeId: node.nodeId });
+      }));
+    } catch (e) {
+      // upload_file failures surface as EUPLOAD (param validation above
+      // already threw EARGS where appropriate).
+      if (e && e.code === 'EUPLOAD') throw e;
+      throw U.err(`upload_file failed (${(e && e.message) || e})`, 'EUPLOAD');
+    }
+    return { uploaded: true };
   }
 
   // ---- evaluate -------------------------------------------------------------
@@ -277,6 +375,8 @@
     scroll,
     selectOption,
     drag,
-    evaluate
+    uploadFile,
+    evaluate,
+    locate
   };
 })(self);

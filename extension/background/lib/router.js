@@ -133,18 +133,65 @@
     },
 
     wait_for: async (params) => {
-      const which = U.reqOneOf(params, ['text', 'selector']);
-      if (typeof params[which] !== 'string' || params[which].length === 0) {
-        throw U.err(`"${which}" must be a non-empty string`, 'EARGS');
+      const hasText = typeof params.text === 'string' && params.text.length > 0;
+      const hasSel = typeof params.selector === 'string' && params.selector.length > 0;
+      const networkIdle = U.optBool(params, 'networkIdle', false);
+      if (hasText && hasSel) {
+        throw U.err('provide either text or selector, not both', 'EARGS');
+      }
+      if (!networkIdle && !hasText && !hasSel) {
+        throw U.err('one of text / selector / networkIdle:true is required', 'EARGS');
+      }
+      let state = null;
+      if (params.state !== undefined && params.state !== null) {
+        if (!hasSel) {
+          throw U.err('"state" is only valid with a selector', 'EARGS');
+        }
+        if (['visible', 'hidden', 'enabled', 'disabled', 'editable'].indexOf(params.state) < 0) {
+          throw U.err(
+            '"state" must be one of visible|hidden|enabled|disabled|editable',
+            'EARGS'
+          );
+        }
+        state = params.state;
       }
       const timeoutMs = U.optInt(params, 'timeoutMs', 10000);
       const tab = await NS.tabs.resolveTab(params.tabId);
-      const res = await NS.contentBridge.askTab(tab.id, {
-        type: 'wait_for', [which]: params[which], timeoutMs
-      });
+
+      if (networkIdle) {
+        // Network-idle is observed from the service worker over CDP: the
+        // in-flight request count must stay at 0 for idleMs within timeoutMs.
+        const idleMs = Math.max(0, U.optInt(params, 'idleMs', 500));
+        await NS.cdp.ensureCapture(tab.id);
+        const deadline = Date.now() + Math.max(250, timeoutMs);
+        let quietSince = null;
+        let found = false;
+        while (Date.now() < deadline) {
+          if (NS.cdp.inFlightCount(tab.id) === 0) {
+            if (quietSince === null) quietSince = Date.now();
+            if (Date.now() - quietSince >= idleMs) { found = true; break; }
+          } else {
+            quietSince = null;
+          }
+          await U.sleep(Math.max(50, Math.min(100, idleMs)));
+        }
+        return {
+          found,
+          matched: found ? 'networkIdle' : 'none',
+          tabId: tab.id,
+          url: tab.url || '',
+          title: tab.title || ''
+        };
+      }
+
+      const msg = { type: 'wait_for', timeoutMs };
+      if (hasText) msg.text = params.text;
+      else msg.selector = params.selector;
+      if (state) msg.state = state;
+      const res = await NS.contentBridge.askTab(tab.id, msg);
       return {
         found: !!res.found,
-        matched: res.found ? which : 'none',
+        matched: res.found ? (state ? 'state' : (hasText ? 'text' : 'selector')) : 'none',
         tabId: tab.id,
         url: res.url || '',
         title: res.title || ''
@@ -156,7 +203,9 @@
       const maxElements = U.optInt(params, 'maxElements', 800);
       const viewportOnly = U.optBool(params, 'viewportOnly', false);
       const tab = await NS.tabs.resolveTab(params.tabId);
-      const res = await NS.contentBridge.askTab(tab.id, {
+      // combinedSnapshot queries every frame and renumbers refs globally
+      // (per-frame rects stay frame-relative; truncated if any frame was).
+      const res = await NS.contentBridge.combinedSnapshot(tab.id, {
         type: 'snapshot', maxElements, viewportOnly
       });
       return {
@@ -203,6 +252,7 @@
     scroll: (params) => withTab(params, NS.automation.scroll),
     select_option: (params) => withTab(params, NS.automation.selectOption),
     drag: (params) => withTab(params, NS.automation.drag),
+    upload_file: (params) => withTab(params, NS.automation.uploadFile),
 
     // ---- §5 JavaScript ------------------------------------------------------
     evaluate: (params) => withTab(params, NS.automation.evaluate),
@@ -228,6 +278,117 @@
       const tab = await NS.tabs.resolveTab(params.tabId);
       const url = typeof params.url === 'string' && params.url ? params.url : (tab.url || '');
       return NS.cdp.getCookies(tab.id, url);
+    },
+
+    // ---- native dialogs (lib/dialogs.js) -------------------------------------
+
+    get_dialog: async (params) => {
+      const tab = await NS.tabs.resolveTab(params.tabId);
+      const w = await NS.dialogs.ensureWatch(tab.id);
+      return { watched: true, open: !!w.dialog, dialog: w.dialog || null };
+    },
+
+    handle_dialog: async (params) => {
+      const tab = await NS.tabs.resolveTab(params.tabId);
+      const accept = U.optBool(params, 'accept', true);
+      const promptText = U.optStr(params, 'promptText', undefined);
+      return NS.dialogs.handleDialog(tab.id, accept, promptText, params.autoDismiss);
+    },
+
+    // ---- downloads (lib/downloads.js) ----------------------------------------
+
+    list_downloads: async (params) => NS.downloads.list(params || {}),
+
+    // ---- origin policy (lib/policy.js) ---------------------------------------
+
+    get_origin_policy: async () => {
+      const policy = await NS.policy.getPolicy();
+      return { policy };
+    },
+
+    set_origin_policy: async (params) => {
+      const policy = await NS.policy.setPolicy(params || {});
+      return { policy };
+    },
+
+    // ---- windows (chrome.windows) --------------------------------------------
+
+    list_windows: async () => {
+      const wins = await chrome.windows.getAll({ populate: false });
+      return {
+        windows: wins.map((w) => ({
+          windowId: w.id,
+          state: w.state || 'normal',
+          width: typeof w.width === 'number' ? w.width : 0,
+          height: typeof w.height === 'number' ? w.height : 0,
+          left: typeof w.left === 'number' ? w.left : 0,
+          top: typeof w.top === 'number' ? w.top : 0,
+          focused: !!w.focused,
+          incognito: !!w.incognito,
+          type: w.type || 'normal'
+        }))
+      };
+    },
+
+    new_window: async (params) => {
+      const url = U.optStr(params, 'url', 'about:blank');
+      const create = { url };
+      if (params.width !== undefined && params.width !== null) {
+        create.width = Math.trunc(U.optInt(params, 'width', 800));
+      }
+      if (params.height !== undefined && params.height !== null) {
+        create.height = Math.trunc(U.optInt(params, 'height', 600));
+      }
+      let w;
+      try {
+        w = await chrome.windows.create(create);
+      } catch (e) {
+        throw U.err(`cannot open window (${(e && e.message) || e})`, 'EEXECUTION');
+      }
+      return {
+        windowId: w.id,
+        state: w.state || 'normal',
+        width: typeof w.width === 'number' ? w.width : 0,
+        height: typeof w.height === 'number' ? w.height : 0
+      };
+    },
+
+    resize_window: async (params) => {
+      const v = params ? params.windowId : undefined;
+      if (typeof v !== 'number' || !Number.isInteger(v)) {
+        throw U.err('missing required integer param "windowId"', 'EARGS');
+      }
+      const update = {};
+      if (params.width !== undefined && params.width !== null) {
+        update.width = Math.trunc(U.optInt(params, 'width', 0));
+      }
+      if (params.height !== undefined && params.height !== null) {
+        update.height = Math.trunc(U.optInt(params, 'height', 0));
+      }
+      if (params.state !== undefined && params.state !== null) {
+        if (['normal', 'maximized', 'minimized', 'fullscreen'].indexOf(params.state) < 0) {
+          throw U.err(
+            'state must be one of normal|maximized|minimized|fullscreen', 'EARGS'
+          );
+        }
+        update.state = params.state;
+      }
+      if (!Object.keys(update).length) {
+        throw U.err('one of width / height / state is required', 'EARGS');
+      }
+      let w;
+      try {
+        w = await chrome.windows.update(v, update);
+      } catch (e) {
+        void chrome.runtime.lastError;
+        throw U.err(`cannot update window ${v} (${(e && e.message) || e})`, 'EEXECUTION');
+      }
+      return {
+        windowId: w.id,
+        width: typeof w.width === 'number' ? w.width : 0,
+        height: typeof w.height === 'number' ? w.height : 0,
+        state: w.state || 'normal'
+      };
     },
 
     // ---- §7 WebMCP ----------------------------------------------------------
@@ -257,5 +418,12 @@
     return handler(params || {});
   }
 
-  NS.router = { dispatch, handlers };
+  // Origin-policy enforcement wraps dispatch (lib/policy.js is imported
+  // before this file): ACTION tools check the target origin first.
+  let routed = dispatch;
+  if (NS.policy && typeof NS.policy.wrapDispatch === 'function') {
+    routed = NS.policy.wrapDispatch(dispatch);
+  }
+
+  NS.router = { dispatch: routed, handlers };
 })(self);

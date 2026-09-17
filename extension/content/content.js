@@ -1,18 +1,23 @@
 /**
  * WebMCP Tools — content script (classic IIFE, injected at document_start on
- * <all_urls> in the top frame only; also re-injectable by the service worker).
+ * <all_urls> in every frame; also re-injectable by the service worker).
  *
  * Responsibilities:
  *  - console/error capture (rate-limited forward to the service worker)
  *  - element ref registry (stable per document, refs created lazily)
- *  - snapshot of interactive elements
- *  - get_page_text / get_links / wait_for / scroll
+ *  - snapshot of interactive elements (shadow-DOM piercing)
+ *  - get_page_text / get_links / wait_for (text, selector, element state) /
+ *    scroll
  *  - DOM-mode interactions: click, hover, type_text, press_key,
  *    select_option, drag (synthetic pointer/mouse/keyboard sequences)
- *  - `locate` for trusted (CDP) input coordinates
+ *  - `locate` for trusted (CDP) input coordinates, by ref/selector or by
+ *    viewport point; also reports formSubmit + a cssSelector path
  *
- * Message protocol with the service worker: {type:"<op>", ...} ->
- * {ok:true, ...} | {ok:false, message, code}. Never throws into the page.
+ * Element lookups traverse open shadow roots; in iframe frames locate()
+ * coordinates include the same-origin frame offset so trusted CDP input
+ * (tab-viewport based) lands correctly. Message protocol with the service
+ * worker: {type:"<op>", ...} -> {ok:true, ...} | {ok:false, message, code}.
+ * Never throws into the page.
  */
 (function () {
   'use strict';
@@ -220,13 +225,49 @@
         fail(`${selKey} must be a non-empty CSS selector`, 'EARGS');
       }
       let el = null;
-      try { el = document.querySelector(msg[selKey]); } catch (e) {
+      try { el = deepQuerySelector(document, msg[selKey]); } catch (e) {
         fail(`invalid CSS selector "${msg[selKey]}": ${e.message}`, 'EARGS');
       }
       if (!el) fail(`no element matches selector "${msg[selKey]}"`, 'ENO_SUCH_SELECTOR');
       return el;
     }
     fail(`one of ${refKey} or ${selKey} is required`, 'EARGS');
+  }
+
+  // ===========================================================================
+  // shadow-DOM piercing lookups
+  // ===========================================================================
+  //
+  // querySelector stops at shadow boundaries; these helpers recurse into
+  // open shadow roots (el.shadowRoot) so refs/selectors reach slotted and
+  // shadow-internal controls. Closed roots are unreachable by design.
+
+  function deepQuerySelector(root, selector) {
+    const hit = root.querySelector(selector);
+    if (hit) return hit;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, null, false);
+    let node;
+    while ((node = walker.nextNode())) {
+      if (node.shadowRoot) {
+        const found = deepQuerySelector(node.shadowRoot, selector);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Document-order element generator crossing open shadow roots: after each
+   * host element its shadow subtree is yielded before the light-DOM
+   * continuation. Used by the snapshot collector (truncation stays lazy).
+   */
+  function* walkElements(root) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, null, false);
+    let node;
+    while ((node = walker.nextNode())) {
+      yield node;
+      if (node.shadowRoot) yield* walkElements(node.shadowRoot);
+    }
   }
 
   // ===========================================================================
@@ -398,10 +439,9 @@
     const vh = window.innerHeight || document.documentElement.clientHeight;
     const elements = [];
     let truncated = false;
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT, null, false);
-    let node;
-    while ((node = walker.nextNode())) {
-      const el = node;
+    // Shadow-piercing document-order walk (open roots only); refs come from
+    // the same per-document registry, so they stay stable across snapshots.
+    for (const el of walkElements(document.body)) {
       let matches = false;
       try { matches = el.matches(INTERACTIVE_SELECTOR); } catch (e) { continue; }
       if (!matches) continue;
@@ -472,14 +512,26 @@
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  function elementStateMatches(el, state) {
+    switch (state) {
+      case 'visible': return isVisible(el);
+      case 'hidden': return !isVisible(el);
+      case 'enabled': return !el.disabled;
+      case 'disabled': return !!el.disabled;
+      case 'editable': return isEditable(el);
+      default: return true;
+    }
+  }
+
   async function doWaitFor(msg) {
     const hasText = typeof msg.text === 'string' && msg.text.length > 0;
     const hasSel = typeof msg.selector === 'string' && msg.selector.length > 0;
     if (hasText === hasSel) fail('exactly one of text or selector is required', 'EARGS');
+    const state = typeof msg.state === 'string' && msg.state.length > 0 ? msg.state : null;
     const timeoutMs = Number.isFinite(+msg.timeoutMs) && +msg.timeoutMs > 0 ? +msg.timeoutMs : 10000;
     const start = Date.now();
     if (hasSel) {
-      try { document.querySelector(msg.selector); } catch (e) {
+      try { deepQuerySelector(document, msg.selector); } catch (e) {
         fail(`invalid CSS selector "${msg.selector}": ${e.message}`, 'EARGS');
       }
     }
@@ -492,9 +544,14 @@
         }
       } else {
         let el = null;
-        try { el = document.querySelector(msg.selector); } catch (e) { el = null; }
-        if (el) {
-          return { found: true, matched: 'selector', url: location.href, title: document.title || '' };
+        try { el = deepQuerySelector(document, msg.selector); } catch (e) { el = null; }
+        if (el && (!state || elementStateMatches(el, state))) {
+          return {
+            found: true,
+            matched: state ? 'state' : 'selector',
+            url: location.href,
+            title: document.title || ''
+          };
         }
       }
       const elapsed = Date.now() - start;
@@ -1206,18 +1263,132 @@
     return { dragged: true };
   }
 
+  // ---- locate helpers ---------------------------------------------------------
+
+  /** Submit-ish control? (input[type=submit|image], or a submit/default
+   * button inside a <form>) — drives the sensitive-origin confirm check. */
+  function isSubmitControl(el) {
+    try {
+      const tag = el.tagName;
+      if (tag === 'INPUT' && (el.type === 'submit' || el.type === 'image')) return true;
+      if (tag === 'BUTTON') {
+        const type = (el.getAttribute('type') || 'submit').toLowerCase();
+        if (type !== 'submit') return false;
+        return !!(el.closest && el.closest('form'));
+      }
+    } catch (e) { /* noop */ }
+    return false;
+  }
+
+  function cssEscapeIdent(s) {
+    try {
+      return window.CSS && typeof CSS.escape === 'function'
+        ? CSS.escape(s)
+        : String(s).replace(/([^\w-])/g, '\\$1');
+    } catch (e) {
+      return String(s);
+    }
+  }
+
+  /**
+   * Simple unique CSS path: tag#id when the id is unique, otherwise a
+   * tag:nth-of-type chain up the (light) DOM. Used for upload_file's
+   * DOM.setFileInputFiles addressing; shadow-internal elements produce a
+   * path to their host (best effort).
+   */
+  function cssPathFor(el) {
+    try {
+      const tag = el.tagName.toLowerCase();
+      if (el.id && document.getElementById(el.id) === el) {
+        return tag + '#' + cssEscapeIdent(el.id);
+      }
+      const parts = [];
+      let node = el;
+      while (node && node.nodeType === 1 && parts.length <= 16) {
+        if (node.id && document.getElementById(node.id) === node) {
+          parts.unshift(node.tagName.toLowerCase() + '#' + cssEscapeIdent(node.id));
+          break; // unique id — the chain is unambiguous from here
+        }
+        let part = node.tagName.toLowerCase();
+        const parent = node.parentElement;
+        if (parent) {
+          let idx = 1;
+          for (let sib = node.previousElementSibling; sib; sib = sib.previousElementSibling) {
+            if (sib.tagName === node.tagName) idx++;
+          }
+          part += ':nth-of-type(' + idx + ')';
+        }
+        parts.unshift(part);
+        if (parent) {
+          node = parent;
+        } else {
+          // parentElement null: the document root, or a shadow root — in the
+          // latter case continue from the host (the path then addresses the
+          // host, not the shadow interior: best effort).
+          const pn = node.parentNode;
+          node = pn && pn.host ? pn.host : null;
+        }
+      }
+      return parts.join(' > ');
+    } catch (e) {
+      return '';
+    }
+  }
+
+  /**
+   * Offset of this frame's viewport inside the tab viewport (same-origin
+   * ancestors only — window.frameElement is null across origins). Used so
+   * locate() coordinates from iframe frames work for trusted CDP input.
+   */
+  function frameViewportOffset() {
+    try {
+      let x = 0;
+      let y = 0;
+      let w = window;
+      let hops = 0;
+      while (w !== w.top && hops++ < 16) {
+        const fe = w.frameElement; // null at cross-origin boundaries
+        if (!fe) return null;
+        const r = fe.getBoundingClientRect();
+        x += r.left;
+        y += r.top;
+        w = w.parent;
+      }
+      return { x, y };
+    } catch (e) {
+      return null;
+    }
+  }
+
   function doLocate(msg) {
-    const el = resolveTarget(msg);
+    let el = null;
+    const hasX = msg.x !== undefined && msg.x !== null;
+    const hasY = msg.y !== undefined && msg.y !== null;
+    if (hasX || hasY) {
+      if (!hasX || !hasY) fail('x and y must be provided together', 'EARGS');
+      const px = Number(msg.x);
+      const py = Number(msg.y);
+      if (!Number.isFinite(px) || !Number.isFinite(py)) {
+        fail('x and y must be finite numbers', 'EARGS');
+      }
+      el = document.elementFromPoint(px, py);
+      if (!el) fail(`no element at point (${px}, ${py})`, 'ENO_SUCH_SELECTOR');
+    } else {
+      el = resolveTarget(msg);
+    }
     if (msg.scroll !== false) scrollIntoViewIfNeeded(el);
     const c = center(el);
+    const off = frameViewportOffset(); // null in cross-origin frames
     const text = describeText(el);
     return {
-      x: Math.round(c.x * 10) / 10,
-      y: Math.round(c.y * 10) / 10,
+      x: Math.round((c.x + (off ? off.x : 0)) * 10) / 10,
+      y: Math.round((c.y + (off ? off.y : 0)) * 10) / 10,
       w: Math.round(c.w),
       h: Math.round(c.h),
       tag: el.tagName.toLowerCase(),
-      text: text || undefined
+      text: text || undefined,
+      formSubmit: isSubmitControl(el),
+      cssSelector: cssPathFor(el)
     };
   }
 

@@ -20,6 +20,7 @@
   let stableTimer = null;
   let requestHandler = null;
   let eventListener = null;
+  let halted = false; // agent-control kill switch: no connects, no reconnects
   const pendingResponses = new Map(); // id -> finish(ok, payload)
 
   function post(obj) {
@@ -90,10 +91,12 @@
       try { finish(false, { message: 'native host connection lost', code: 'EWEBMCP' }); } catch (e) { /* noop */ }
     }
     pendingResponses.clear();
+    if (halted) return; // kill switch is ON — never reschedule
     scheduleReconnect();
   }
 
   function scheduleReconnect() {
+    if (halted) return; // kill switch is ON — never schedule
     if (reconnectTimer) return;
     const delay = BACKOFF_SCHEDULE[Math.min(backoffIdx, BACKOFF_SCHEDULE.length - 1)];
     backoffIdx = Math.min(backoffIdx + 1, BACKOFF_SCHEDULE.length - 1);
@@ -103,7 +106,23 @@
     }, delay);
   }
 
+  /** Kill switch: stop the port AND every pending/future reconnect attempt. */
+  function halt() {
+    halted = true;
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    clearTimeout(stableTimer);
+    if (port) {
+      try { port.disconnect(); } catch (e) { /* noop */ }
+      port = null;
+    }
+    console.log('[webmcp] halt() — agent control disabled');
+  }
+
   function connect() {
+    halted = false; // a manual connect re-enables the pipe
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
@@ -177,6 +196,7 @@
 
   NS.nativePort = {
     connect,
+    halt,
     disconnect() {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;

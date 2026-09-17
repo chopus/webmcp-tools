@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WebMCP Tools — agent control</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    width: 280px;
+    margin: 0;
+    padding: 12px;
+    background: #202124;
+    color: #e8eaed;
+    font: 13px/1.45 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  }
+  header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .brand { font-size: 15px; font-weight: 600; }
+  .version { color: #9aa0a6; font-size: 11px; }
+  .toggleRow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid #3c4043;
+    border-radius: 8px;
+    background: #292a2d;
+  }
+  .toggleLabel { font-size: 14px; font-weight: 600; flex: 1 1 auto; }
+  .switch { position: relative; display: inline-block; flex: 0 0 auto; }
+  .switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+  .track {
+    display: block;
+    width: 44px;
+    height: 24px;
+    border-radius: 12px;
+    background: #757575;
+    transition: background 0.15s ease;
+  }
+  .knob {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #ffffff;
+    transition: transform 0.15s ease;
+    pointer-events: none;
+  }
+  .switch input:checked + .track { background: #2e7d32; }
+  .switch input:checked ~ .knob { transform: translateX(20px); }
+  .switch input:focus-visible + .track { outline: 2px solid #8ab4f8; outline-offset: 2px; }
+  .stateText { flex: 0 0 auto; min-width: 26px; text-align: right; font-weight: 700; font-size: 13px; }
+  .stateText.on { color: #81c995; }
+  .stateText.off { color: #9aa0a6; }
+  .status { margin: 12px 2px 0; color: #bdc1c6; }
+  .status .server { color: #e8eaed; }
+  .hint { margin-top: 2px; color: #9aa0a6; font-size: 12px; }
+  .note {
+    margin-top: 8px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: #3c3000;
+    color: #fdd663;
+    font-size: 12px;
+  }
+  footer {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid #3c4043;
+    color: #9aa0a6;
+    font-size: 11.5px;
+  }
+</style>
+</head>
+<body>
+  <header>
+    <span class="brand">WebMCP Tools</span>
+    <span class="version" id="version"></span>
+  </header>
+
+  <div class="toggleRow">
+    <span class="toggleLabel" id="toggleLabel">Agent control</span>
+    <span class="switch">
+      <input type="checkbox" id="agentControlToggle" checked aria-labelledby="toggleLabel">
+      <span class="track"></span>
+      <span class="knob"></span>
+    </span>
+    <span class="stateText on" id="toggleState">ON</span>
+  </div>
+
+  <div class="status">
+    <div class="server" id="serverStatus">Server: …</div>
+    <div class="hint">Reconnect happens automatically while ON.</div>
+  </div>
+
+  <div class="note" id="swNote" hidden>
+    service worker asleep — toggle will apply on wake
+  </div>
+
+  <footer>OFF blocks every agent tool call; your tabs keep working.</footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>

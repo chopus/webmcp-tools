@@ -2,12 +2,14 @@
  * WebMCP Tools — chrome.debugger (CDP) wrapper.
  *
  * - withDebugger(tabId, fn): attach -> run -> detach, skipping the detach
- *   while a network capture owns the attachment.
+ *   while a network capture or a dialog watch owns the attachment.
  * - trustedInput: CDP Input.dispatchMouseEvent / Input.dispatchKeyEvent /
  *   Input.insertText for real-input-level events.
  * - full-page screenshots via Page.captureScreenshot (captureBeyondViewport).
  * - network capture: Network.enable + ring buffer (500/tab) until
- *   stop_network_capture.
+ *   stop_network_capture; in-flight requests are tracked exactly
+ *   (requestWillBeSent in, responseReceived/loadingFinished/loadingFailed
+ *   out) for wait_for networkIdle.
  */
 (function (global) {
   'use strict';
@@ -15,7 +17,8 @@
   const NS = (global.WMCP = global.WMCP || {});
   const U = NS.util;
 
-  // tabId -> { capture: boolean, netEnabled: boolean }  (only for OUR attaches)
+  // tabId -> { capture: boolean, netEnabled: boolean, dialogWatch: boolean }
+  // (only for OUR attaches; capture/dialogWatch hold the attachment open)
   const attached = new Map();
 
   // tabId -> { pending: Map<requestId, {ts, method, url}>, entries: [] }
@@ -42,9 +45,11 @@
   }
 
   /**
-   * attach -> fn(command, state) -> detach (unless a network capture holds it).
-   * `command(method, params)` returns a promise for the CDP result and
-   * rejects with EDEBUGGER on failure.
+   * attach -> fn(command, state) -> detach (unless a network capture or a
+   * dialog watch holds the attachment open). `command(method, params)`
+   * returns a promise for the CDP result and rejects with EDEBUGGER on
+   * failure. Setting state.capture or state.dialogWatch inside fn keeps the
+   * debugger attached after fn returns (event listeners need the attach).
    */
   async function withDebugger(tabId, fn) {
     let state = attached.get(tabId);
@@ -58,7 +63,7 @@
           'EDEBUGGER'
         );
       }
-      state = { capture: false, netEnabled: false };
+      state = { capture: false, netEnabled: false, dialogWatch: false };
       attached.set(tabId, state);
     }
     const command = (method, params) => new Promise((resolve, reject) => {
@@ -74,7 +79,7 @@
     try {
       return await fn(command, state);
     } finally {
-      if (!state.capture) {
+      if (!state.capture && !state.dialogWatch) {
         attached.delete(tabId);
         await detach(tabId);
       }
@@ -307,6 +312,24 @@
         if (cap.entries.length > MAX_NET_PER_TAB) {
           cap.entries.splice(0, cap.entries.length - MAX_NET_PER_TAB);
         }
+      } else if (method === 'Network.loadingFinished' ||
+                 method === 'Network.loadingFailed') {
+        // Requests that never produced a responseReceived (data:, cached,
+        // failed early) are recorded here so in-flight counting stays exact.
+        const pending = cap.pending.get(params.requestId);
+        cap.pending.delete(params.requestId);
+        if (pending) {
+          cap.entries.push({
+            ts: pending.ts,
+            method: pending.method,
+            url: pending.url,
+            status: 0,
+            type: params.type || ''
+          });
+          if (cap.entries.length > MAX_NET_PER_TAB) {
+            cap.entries.splice(0, cap.entries.length - MAX_NET_PER_TAB);
+          }
+        }
       }
     } catch (e) {
       /* capture must never throw */
@@ -357,10 +380,21 @@
         }
         state.netEnabled = false;
       }
-      attached.delete(tabId);
-      await detach(tabId);
+      if (!state.dialogWatch) { // a dialog watch may still hold the attach
+        attached.delete(tabId);
+        await detach(tabId);
+      }
     }
     return { stopped: true };
+  }
+
+  /**
+   * Number of in-flight (started, not yet finished/failed) requests for a
+   * captured tab — the signal behind wait_for networkIdle.
+   */
+  function inFlightCount(tabId) {
+    const cap = captures.get(tabId);
+    return cap ? cap.pending.size : 0;
   }
 
   function getRequests(tabId, params) {
@@ -389,6 +423,7 @@
     ensureCapture,
     stopCapture,
     getRequests,
+    inFlightCount,
     modBits
   };
 })(self);
