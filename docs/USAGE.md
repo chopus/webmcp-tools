@@ -21,6 +21,7 @@ contract, read [`PROTOCOL.md`](PROTOCOL.md).
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
 - [Configuring an MCP client](#configuring-an-mcp-client)
+- [HTTP transport](#http-transport)
 - [Tool catalog (28 tools)](#tool-catalog-28-tools)
 - [Multiple browsers (instanceId)](#multiple-browsers-instanceid)
 - [The two input modes (DOM vs trusted)](#the-two-input-modes-dom-vs-trusted)
@@ -130,9 +131,66 @@ same shape:
 | Env | none required |
 
 The MCP client starts the server over stdio. You do not configure an HTTP or
-WebSocket endpoint. The hub of the server listens on an ephemeral port on
-`127.0.0.1`. Only the native relay may use this port. The relay reads the
-token from `os.tmpdir()/webmcp-tools-hub.json`.
+WebSocket endpoint. (An opt-in streamable HTTP endpoint exists for remote and
+second clients — see [HTTP transport](#http-transport).) The hub of the
+server listens on an ephemeral port on `127.0.0.1`. Only the native relay may
+use this port. The relay reads the token from
+`os.tmpdir()/webmcp-tools-hub.json`.
+
+## HTTP transport
+
+By default the server speaks MCP over stdio, which ties it to one local MCP
+client per process. The `--http` flag additionally serves the same MCP server
+over the MCP streamable HTTP transport, so remote agents (through an ssh
+tunnel or proxy) and a second simultaneous MCP client can connect while the
+stdio transport keeps working. Both transports share one hub: every client
+drives the same connected browser.
+
+```bash
+node server/dist/index.js --http              # stdio + http://127.0.0.1:8930/mcp
+node server/dist/index.js --http=8931         # explicit port
+node server/dist/index.js --http --port 8931  # same, --port form
+```
+
+| Field | Value |
+|---|---|
+| URL | `http://127.0.0.1:<port>/mcp` (default port 8930) |
+| Bind address | `127.0.0.1` only |
+| Transport | MCP streamable HTTP: `POST` JSON-RPC, `GET` SSE stream, `DELETE` session |
+
+Sessions are stateful, like the SDK's streamable-http examples. The first
+`initialize` POST (sent without a session header) creates a fresh server
+instance and returns an `mcp-session-id` response header. The client echoes
+that header on every later request. `DELETE /mcp` with the header terminates
+the session; a `GET` on a live session opens the server-to-client SSE stream.
+While `--http` is active the process no longer exits when the stdio client
+disconnects (stdin EOF) — stop it with Ctrl+C or SIGTERM, which also removes
+the hub discovery file.
+
+Initialize with curl (the response is SSE and carries `mcp-session-id`):
+
+```bash
+curl -i http://127.0.0.1:8930/mcp \
+  -H 'content-type: application/json' \
+  -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"curl","version":"0"}}}'
+```
+
+Then send a follow-up request on the same session:
+
+```bash
+curl -i http://127.0.0.1:8930/mcp \
+  -H 'content-type: application/json' \
+  -H 'accept: application/json, text/event-stream' \
+  -H 'mcp-session-id: <id from the initialize response>' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+```
+
+> **Warning: no authentication.** The endpoint can drive your browser,
+> including cookie-reading tools. It binds to `127.0.0.1` only. Expose it to
+> a remote agent exclusively through a tunnel you control (for example
+> `ssh -L 8930:127.0.0.1:8930`), never by binding a public interface or
+> port-forwarding it blindly.
 
 ## Tool catalog (28 tools)
 
@@ -494,7 +552,9 @@ Each server run rewrites `os.tmpdir()/webmcp-tools-hub.json` with its own
 port and token. A relay that reconnects connects to the hub that wrote the
 file last. The server that `npm run flow` starts follows the same rule: it
 takes over the hub file while a flow runs, and it removes the file when the
-flow ends.
+flow ends. To serve two MCP clients at once, run one server with `--http`
+(see [HTTP transport](#http-transport)) instead of a second process — one
+process means one hub file and no takeover.
 
 ## Development
 

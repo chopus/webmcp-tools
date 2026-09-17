@@ -53,7 +53,7 @@ describe("MCP forwarding to the hub", () => {
       expect(calls[1].timeoutMs).toBe(5000);
 
       await client.callTool({ name: "wait_for", arguments: { selector: "#x" } });
-      expect(calls[2].timeoutMs).toBe(10000);
+      expect(calls[2].timeoutMs).toBe(30000);
 
       await client.callTool({ name: "navigate", arguments: { url: "https://x/", timeoutMs: 999999 } });
       expect(calls[3].timeoutMs).toBe(120000);

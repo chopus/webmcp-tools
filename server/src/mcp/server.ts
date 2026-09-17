@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z, type ZodTypeAny } from "zod";
+import { writeAudit } from "../audit.js";
 import { HubError, type HubApi } from "../hub.js";
 import { VERSION } from "../version.js";
 
@@ -52,6 +53,9 @@ function requireAtMostOne(args: Record<string, unknown>, keys: string[], tool: s
     );
   }
 }
+
+/** `wait_for.idleMs` zod default — validation treats this value as "not provided". */
+const WAIT_FOR_IDLE_MS_DEFAULT = 500;
 
 // ---------------------------------------------------------------------------
 // Result formatting (PROTOCOL.md "Server-side MCP behavior")
@@ -123,11 +127,14 @@ function extensionDirHint(): string {
   }
 }
 
+function errorCodeOf(error: unknown): string | undefined {
+  return error !== null && error !== undefined && typeof (error as { code?: unknown }).code === "string"
+    ? (error as { code: string }).code
+    : undefined;
+}
+
 function errorResult(error: unknown): CallToolResult {
-  const code =
-    error !== null && error !== undefined && typeof (error as { code?: unknown }).code === "string"
-      ? (error as { code: string }).code
-      : "internal";
+  const code = errorCodeOf(error) ?? "internal";
   const message =
     error instanceof Error
       ? error.message
@@ -157,7 +164,7 @@ function clampTimeout(requested: unknown, fallbackMs: number): number {
 }
 
 // ---------------------------------------------------------------------------
-// Tool definitions (PROTOCOL.md §1–§7, names/params/defaults exactly)
+// Tool definitions (PROTOCOL.md §1–§8, names/params/defaults exactly)
 // ---------------------------------------------------------------------------
 
 type ResultFormat = "text" | "screenshot" | "snapshot";
@@ -240,15 +247,34 @@ const TOOL_DEFS: ToolDef[] = [
   },
   {
     name: "wait_for",
-    description: 'Wait until text content or a CSS selector appears in a tab (polls ~250ms). Provide exactly one of "text" or "selector".',
+    description:
+      'Wait until text content appears, a CSS selector matches (optionally in a given "state"), ' +
+      'or the network goes idle. Provide exactly one of "text", "selector" or "networkIdle". ' +
+      '"state" requires "selector"; "idleMs" (quiet window, default 500) requires "networkIdle". ' +
+      "Polls ~250ms.",
     shape: {
       ...tabIdShape,
       text: z.string().optional(),
       selector: z.string().optional(),
-      ...timeoutShape(10000),
+      state: z
+        .enum(["visible", "hidden", "enabled", "disabled", "editable"])
+        .optional()
+        .describe("element state to wait for (requires selector)"),
+      networkIdle: z.boolean().optional(),
+      idleMs: z.number().int().optional().default(500),
+      ...timeoutShape(30000),
     },
-    timeoutMs: 10000,
-    validate: (args) => requireExactlyOne(args, ["text", "selector"], "wait_for"),
+    timeoutMs: 30000,
+    validate: (args) => {
+      requireExactlyOne(args, ["text", "selector", "networkIdle"], "wait_for");
+      if (args.state !== undefined && args.selector === undefined) {
+        throw new HubError('wait_for: "state" requires "selector"', "EARGS");
+      }
+      // `idleMs` has a zod default, so only a non-default value counts as "provided".
+      if (args.networkIdle !== true && args.idleMs !== undefined && args.idleMs !== WAIT_FOR_IDLE_MS_DEFAULT) {
+        throw new HubError('wait_for: "idleMs" requires "networkIdle"', "EARGS");
+      }
+    },
   },
 
   // ----- §3 Observation -----
@@ -292,10 +318,15 @@ const TOOL_DEFS: ToolDef[] = [
   // ----- §4 Interaction -----
   {
     name: "click",
-    description: 'Click an element by ref (from snapshot) or CSS selector.',
+    description:
+      "Click an element by ref (from snapshot) or CSS selector, or at viewport coordinates x/y " +
+      "(trusted CDP click; for canvas/games).",
     shape: {
       ...tabIdShape,
       ...targetingShape(),
+      x: z.number().optional().describe("viewport x coordinate (requires y; replaces ref/selector)"),
+      y: z.number().optional().describe("viewport y coordinate (requires x; replaces ref/selector)"),
+      confirm: z.boolean().optional(),
       button: z.enum(["left", "right", "middle"]).optional().default("left"),
       clickCount: z.number().int().optional().default(1),
       modifiers: z.array(z.string()).optional().default([]),
@@ -303,17 +334,35 @@ const TOOL_DEFS: ToolDef[] = [
       ...timeoutShape(5000),
     },
     timeoutMs: 5000,
-    validate: (args) => requireExactlyOne(args, ["ref", "selector"], "click"),
+    validate: (args) => {
+      const hasRef = args.ref !== undefined && args.ref !== null;
+      const hasSelector = args.selector !== undefined && args.selector !== null;
+      const hasX = args.x !== undefined && args.x !== null;
+      const hasY = args.y !== undefined && args.y !== null;
+      if (hasX !== hasY) {
+        throw new HubError("click: x and y must be provided together", "EARGS");
+      }
+      const targetingCount = (hasRef ? 1 : 0) + (hasSelector ? 1 : 0) + (hasX ? 1 : 0);
+      if (targetingCount > 1) {
+        throw new HubError("click: provide one of ref, selector, or x/y position", "EARGS");
+      }
+      if (targetingCount === 0) {
+        throw new HubError('click: exactly one of "ref", "selector", or "x"/"y" must be provided', "EARGS");
+      }
+    },
   },
   {
     name: "type_text",
-    description: "Type text into an element; optionally clear first and submit with Enter.",
+    description:
+      "Type text into an element; optionally clear first and submit with Enter. " +
+      "Submitting on a sensitive origin (per the origin policy) requires confirm:true.",
     shape: {
       ...tabIdShape,
       ...targetingShape(),
       text: z.string(),
       clearFirst: z.boolean().optional().default(true),
       submit: z.boolean().optional().default(false),
+      confirm: z.boolean().optional(),
       trusted: z.boolean().optional().default(false),
       ...timeoutShape(10000),
     },
@@ -322,11 +371,14 @@ const TOOL_DEFS: ToolDef[] = [
   },
   {
     name: "press_key",
-    description: 'Press a key (e.g. "Enter", "Tab", "ArrowDown", "Control+A") on an element or the page.',
+    description:
+      'Press a key (e.g. "Enter", "Tab", "ArrowDown", "Control+A") on an element or the page. ' +
+      "Submitting on a sensitive origin (per the origin policy) requires confirm:true.",
     shape: {
       ...tabIdShape,
       key: z.string(),
       ...targetingShape(),
+      confirm: z.boolean().optional(),
       trusted: z.boolean().optional().default(false),
       ...timeoutShape(5000),
     },
@@ -468,6 +520,103 @@ const TOOL_DEFS: ToolDef[] = [
     },
     timeoutMs: 30000,
   },
+
+  // ----- §8 Policy / dialogs / downloads / windows -----
+  {
+    name: "get_origin_policy",
+    description:
+      "Get the origin policy (mode, allowlist, denylist, sensitive hosts, requireConfirmOnSubmit).",
+    shape: {},
+    timeoutMs: 10000,
+  },
+  {
+    name: "set_origin_policy",
+    description:
+      "Update the origin policy (partial merge of the given fields): mode allowlist/denylist, " +
+      'allowlist/denylist/sensitive host lists (glob patterns like "*.example.com"), and ' +
+      "requireConfirmOnSubmit. Forwarded to the extension as-is.",
+    shape: {
+      policy: z.object({
+        mode: z.enum(["allowlist", "denylist"]).optional(),
+        allowlist: z.array(z.string()).optional(),
+        denylist: z.array(z.string()).optional(),
+        sensitive: z.array(z.string()).optional(),
+        requireConfirmOnSubmit: z.boolean().optional(),
+      }),
+    },
+    timeoutMs: 10000,
+  },
+  {
+    name: "get_dialog",
+    description:
+      "Inspect the open native dialog (alert/confirm/prompt/beforeunload) on a tab; starts " +
+      "watching the tab for future dialogs. An open dialog blocks the page, but this and " +
+      "handle_dialog still work.",
+    shape: { tabId: z.number().int() },
+    timeoutMs: 10000,
+  },
+  {
+    name: "handle_dialog",
+    description: "Answer (or auto-answer going forward with autoDismiss) the open native dialog on a tab.",
+    shape: {
+      tabId: z.number().int(),
+      accept: z.boolean().optional().default(true),
+      promptText: z.string().optional(),
+      autoDismiss: z.boolean().optional(),
+    },
+    timeoutMs: 10000,
+  },
+  {
+    name: "upload_file",
+    description:
+      "Set a file on an <input type=file> by selector or ref, via CDP DOM.setFileInputFiles " +
+      "(works headlessly, no file picker).",
+    shape: {
+      ...tabIdShape,
+      selector: z.string().optional(),
+      ref: z.number().int().optional(),
+      path: z.string().describe("absolute path to a local file"),
+      ...timeoutShape(10000),
+    },
+    timeoutMs: 10000,
+    validate: (args) => requireExactlyOne(args, ["selector", "ref"], "upload_file"),
+  },
+  {
+    name: "list_downloads",
+    description: "List recent downloads tracked by the extension (id, state, url, filename, bytes, times).",
+    shape: {
+      lastN: z.number().int().optional().default(20),
+      state: z.enum(["in_progress", "complete", "interrupted"]).optional(),
+    },
+    timeoutMs: 10000,
+  },
+  {
+    name: "list_windows",
+    description: "List browser windows (id, state, tabs).",
+    shape: {},
+    timeoutMs: 10000,
+  },
+  {
+    name: "new_window",
+    description: "Open a new browser window.",
+    shape: {
+      url: z.string().optional().default("about:blank"),
+      width: z.number().int().optional(),
+      height: z.number().int().optional(),
+    },
+    timeoutMs: 15000,
+  },
+  {
+    name: "resize_window",
+    description: "Resize or change the state of a window.",
+    shape: {
+      windowId: z.number().int(),
+      width: z.number().int().optional(),
+      height: z.number().int().optional(),
+      state: z.enum(["normal", "maximized", "minimized", "fullscreen"]).optional(),
+    },
+    timeoutMs: 10000,
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -503,6 +652,26 @@ export function createMcpServer(hub: HubApi): McpServer {
       },
       async (rawArgs: Record<string, unknown>): Promise<CallToolResult> => {
         const args = rawArgs ?? {};
+        const startedAt = Date.now();
+        // Audit trail — metadata only: never typed text, values, cookie contents
+        // or full params (see server/src/audit.ts).
+        const writeCallAudit = (ok: boolean, errorCode: string | undefined, result: unknown): void => {
+          writeAudit({
+            ts: new Date().toISOString(),
+            tool: def.name,
+            instanceId:
+              typeof args.instanceId === "string" && args.instanceId ? args.instanceId : null,
+            tabId: typeof args.tabId === "number" ? args.tabId : null,
+            url:
+              result !== null && typeof result === "object" &&
+              typeof (result as { url?: unknown }).url === "string"
+                ? (result as { url: string }).url
+                : null,
+            ok,
+            errorCode,
+            durationMs: Date.now() - startedAt,
+          });
+        };
         try {
           def.validate?.(args);
           const timeoutMs = clampTimeout(args.timeoutMs, def.timeoutMs);
@@ -513,6 +682,7 @@ export function createMcpServer(hub: HubApi): McpServer {
             timeoutMs,
             typeof instanceId === "string" && instanceId ? instanceId : undefined,
           )) as Record<string, unknown>;
+          writeCallAudit(true, undefined, result);
           if (def.name === "get_browser_info") {
             // Augment with multi-instance routing info from the hub.
             result.instanceId = typeof instanceId === "string" && instanceId
@@ -529,6 +699,7 @@ export function createMcpServer(hub: HubApi): McpServer {
               return textResult(result);
           }
         } catch (error) {
+          writeCallAudit(false, errorCodeOf(error), null);
           return errorResult(error);
         }
       },

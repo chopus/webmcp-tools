@@ -18,7 +18,7 @@ This document lists all features. For install steps, read
   (`document.modelContext`). Pages can expose typed tools. Agents call these
   tools with JSON arguments instead of simulating clicks.
 
-## The 28 tools
+## The 37 tools
 
 Each tool accepts an optional `tabId`. The default target is the active tab.
 Each tool also accepts an optional `instanceId`. This parameter selects a
@@ -40,7 +40,7 @@ connected browser. Interaction tools target elements by `ref` (from
 | `navigate` | Opens a URL and waits for the load. The call has a timeout. |
 | `go_back` / `go_forward` | Moves through the history. Reports `navigated: false` at the edges. |
 | `reload` | Reloads the page. Can bypass the cache. |
-| `wait_for` | Polls until a text or a CSS selector appears |
+| `wait_for` | Polls until text, a selector, or an element **state** (`visible`, `hidden`, `enabled`, `disabled`, `editable`) appears, or until the network goes **idle** (`networkIdle`, quiet for `idleMs`). |
 
 ### Observation
 | Tool | What it does |
@@ -53,7 +53,7 @@ connected browser. Interaction tools target elements by `ref` (from
 ### Interaction
 | Tool | What it does |
 |---|---|
-| `click` | Dispatches a full pointer and mouse sequence. Supports left, right, and middle buttons, double-clicks, and modifier keys. |
+| `click` | Dispatches a full pointer and mouse sequence. Supports left, right, and middle buttons, double-clicks, and modifier keys. Also clicks **viewport coordinates** (`x`/`y`) through trusted CDP input — for canvas apps and games. |
 | `type_text` | Types per character with keyboard events. Sets values in a way that React accepts. Can clear first and press Enter at the end. |
 | `press_key` | Presses named keys and combos (`Enter`, `Tab`, `Control+A`, `F5`, …) with correct virtual key codes |
 | `hover` | Dispatches a hover-in and hover-out sequence |
@@ -80,6 +80,16 @@ connected browser. Interaction tools target elements by `ref` (from
 | `list_webmcp_tools` | Discovers the tools that a page exposes: native `document.modelContext` (Chrome 149+ origin trial), the polyfill, or declarative `form[toolname]` markup. Can inject the vendored polyfill on demand (`injectPolyfill: true`). |
 | `call_webmcp_tool` | Executes a page-exposed tool by name with JSON arguments. The validation and handlers of the page run. No click simulation. |
 
+### Policy, dialogs, downloads & windows
+| Tool | What it does |
+|---|---|
+| `get_origin_policy` / `set_origin_policy` | Reads and updates the **origin policy**: an allow-list or a deny-list of host patterns (`*.example.com`) plus a list of sensitive hosts. Action tools are blocked on denied origins (`EORIGIN_POLICY`). Submits on sensitive origins require an explicit `confirm: true` (`ECONFIRM_REQUIRED`). |
+| `get_dialog` | Reports the open native dialog (`alert`/`confirm`/`prompt`/`beforeunload`) on a tab and starts watching the tab for future dialogs. |
+| `handle_dialog` | Answers the open dialog (`accept`, optional `promptText`) or enables **auto-dismiss** for the tab so dialogs never block automation. |
+| `upload_file` | Sets a file on an `<input type=file>` by selector or ref via CDP `DOM.setFileInputFiles`. No file picker involved. |
+| `list_downloads` | Lists downloads tracked by the extension (state, URL, filename, bytes, times), newest first. |
+| `list_windows` / `new_window` / `resize_window` | Lists windows, opens a new one (with size), and resizes or maximizes/minimizes one. |
+
 ## Platform features
 
 - **Two input modes.** The default mode dispatches synthetic DOM events.
@@ -100,6 +110,20 @@ connected browser. Interaction tools target elements by `ref` (from
   protects the handshake. The native host manifest pins `allowed_origins` to
   your deterministic extension ID. There is no telemetry and no cloud. Data
   does not leave the machine.
+- **Origin policy.** An allow-list / deny-list of host patterns limits where
+  the agent may act. Submits on hosts marked sensitive require an explicit
+  `confirm: true`. The default policy allows everything, so nothing changes
+  until you restrict it.
+- **Audit log.** Every tool call is appended to
+  `reports/audit/audit-YYYY-MM-DD.ndjson` (one JSON line per call: tool, tab,
+  URL, outcome, duration — never the typed text or cookie values).
+- **All frames and shadow DOM.** The content script runs in every frame
+  (`all_frames`). `snapshot` merges elements across frames into one ref space,
+  and element lookup pierces open shadow roots.
+- **HTTP transport.** Run the server with `--http` to expose the same tools
+  over streamable HTTP (`http://127.0.0.1:8930/mcp`) next to stdio — for
+  remote agents over an ssh tunnel and for a second MCP client. See
+  [`USAGE.md`](USAGE.md#http-transport).
 - **Readable extension.** The extension is small, uses plain JavaScript, and
   has no dependencies and no build step. It loads no remote code. Read it
   before you load it.
@@ -112,10 +136,10 @@ connected browser. Interaction tools target elements by `ref` (from
   passed. Page-side parsers live in real JavaScript files
   (`flows/lib/google-search.js`) and flow steps load them with
   `functionFile`. See [`USAGE.md`](USAGE.md#flows).
-- **Tested.** The server has 106 unit tests. The E2E suite has 54 steps. It
+- **Tested.** The server has 138 unit tests. The E2E suite has 54 steps. It
   drives a real installed Chrome through the complete chain. The suite was
   verified while the daily Chrome of the developer stayed connected to the
-  same server.
+  same server. CI (GitHub Actions) builds and tests every push.
 
 ## Examples
 

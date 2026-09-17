@@ -1,6 +1,6 @@
 {
   "name": "webmcp-browser",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "MCP server + native messaging host for webmcp-tools: drives the user's real Chrome session via a WebMCP-aware extension.",
   "type": "module",
   "license": "MIT",
@@ -22,7 +22,9 @@
     "dev": "tsc --watch"
   },
   "dependencies": {
+    "@hono/node-server": "^2.1.1",
     "@modelcontextprotocol/sdk": "^1.20.0",
+    "hono": "^4.13.5",
     "zod": "^3.25.0"
   },
   "devDependencies": {

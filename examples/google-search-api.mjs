@@ -20,8 +20,9 @@
  *
  * Keeps ONE MCP server process alive and shares it across requests; searches
  * run sequentially (FIFO) so concurrent requests can't race each other's tabs.
+ * Queued jobs are journaled under data/ and pending ones re-run on restart.
  */
-import { writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { Hono } from "hono";
 import { serve } from "@hono/node-server";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -32,6 +33,13 @@ import { dirname, join } from "node:path";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = Number(process.env.PORT || 8787);
 const TOOL_TIMEOUT = Number(process.env.TOOL_TIMEOUT || 120000);
+
+// Job journal: append-only event log + a snapshot of unfinished jobs, both
+// under data/ (sibling of the .tmp dir used for screenshots). No deps beyond
+// node:fs — persistence is best effort and never blocks a search.
+const dataDir = join(root, "data");
+const jobsLogFile = join(dataDir, "jobs.jsonl");
+const pendingFile = join(dataDir, "pending.json");
 
 // ---------------------------------------------------------------- MCP session
 
@@ -79,6 +87,33 @@ let queue = Promise.resolve();
 const enqueue = (fn) => {
   const run = queue.then(fn, fn);
   queue = run.catch(() => {});
+  return run;
+};
+
+// ----------------------------------------------------------- job persistence
+
+let jobSeq = 0;
+const newJobId = () =>
+  `${Date.now().toString(36)}-${(jobSeq++).toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+const pendingJobs = new Map(); // id -> { id, ...params }; rewritten as jobs settle
+const logJob = (event) => {
+  try { appendFileSync(jobsLogFile, `${JSON.stringify(event)}\n`); } catch { /* best effort */ }
+};
+const savePending = () => {
+  try { writeFileSync(pendingFile, `${JSON.stringify([...pendingJobs.values()], null, 2)}\n`); } catch { /* best effort */ }
+};
+
+/** enqueue() + journal: pending on accept, done/error on settle, pending.json kept current. */
+const submitSearch = (input, id = newJobId()) => {
+  pendingJobs.set(id, { id, ...input });
+  logJob({ id, ts: new Date().toISOString(), query: input.query, pages: input.pages, status: "pending" });
+  savePending();
+  const run = enqueue(() => runSearch(input));
+  run.then(
+    () => logJob({ id, ts: new Date().toISOString(), status: "done" }),
+    (e) => logJob({ id, ts: new Date().toISOString(), status: "error", error: String(e?.message ?? e) }),
+  ).then(() => { pendingJobs.delete(id); savePending(); });
   return run;
 };
 
@@ -218,7 +253,7 @@ app.post("/search", async (c) => {
   const input = parseInput(c.req.query(), await c.req.json().catch(() => ({})));
   if (!input) return c.json({ ok: false, error: "body must be { \"query\": \"…\" }" }, 400);
   try {
-    const result = await enqueue(() => runSearch(input));
+    const result = await submitSearch(input);
     if (input.screenshot && result.screenshotDataUrl) {
       // also drop a copy on disk for easy inspection
       try {
@@ -244,6 +279,25 @@ app.get("/search", (c) => {
     body: JSON.stringify(input),
   }));
 });
+
+// ---------------------------------------------------------- startup recovery
+
+// Before accepting new work: re-enqueue anything still pending from a previous
+// run (they join the front of the same FIFO queue). Deduped by id in case
+// pending.json somehow lists a job twice; a replayed job keeps its old id.
+try { mkdirSync(dataDir, { recursive: true }); } catch { /* best effort */ }
+const replayedIds = new Set();
+try {
+  const saved = JSON.parse(readFileSync(pendingFile, "utf8"));
+  const recover = (Array.isArray(saved) ? saved : []).filter((j) => j?.id && !replayedIds.has(j.id));
+  if (recover.length) {
+    console.log(`recovering ${recover.length} pending job(s) from ${pendingFile}`);
+    for (const { id, query, pages, instanceId, keepTab, screenshot } of recover) {
+      replayedIds.add(id);
+      submitSearch({ query, pages, instanceId, keepTab, screenshot }, id);
+    }
+  }
+} catch { /* no/blank pending.json — nothing to recover */ }
 
 serve({ fetch: app.fetch, port: PORT }, (info) => {
   console.log(`webmcp search API listening on http://localhost:${info.port}`);

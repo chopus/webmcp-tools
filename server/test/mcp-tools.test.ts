@@ -1,8 +1,23 @@
-import { describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { setAuditDir } from "../src/audit.js";
 import type { HubApi } from "../src/hub.js";
 import { withMcpClient } from "./helpers.js";
 
-// The exact tool surface from docs/PROTOCOL.md §1–§7 (28 tools).
+// Keep the audit trail out of the repo while these tests run.
+let auditDir: string;
+beforeAll(() => {
+  auditDir = mkdtempSync(path.join(os.tmpdir(), "webmcp-audit-"));
+  setAuditDir(auditDir);
+});
+afterAll(() => {
+  setAuditDir(null);
+  rmSync(auditDir, { recursive: true, force: true });
+});
+
+// The exact tool surface from docs/PROTOCOL.md §1–§8 (37 tools).
 const EXPECTED_TOOLS = [
   // §1 Browser / tabs
   "get_browser_info",
@@ -39,6 +54,16 @@ const EXPECTED_TOOLS = [
   // §7 WebMCP
   "list_webmcp_tools",
   "call_webmcp_tool",
+  // §8 Policy / dialogs / downloads / windows
+  "get_origin_policy",
+  "set_origin_policy",
+  "get_dialog",
+  "handle_dialog",
+  "upload_file",
+  "list_downloads",
+  "list_windows",
+  "new_window",
+  "resize_window",
 ];
 
 function fakeHub(): HubApi {
@@ -48,12 +73,12 @@ function fakeHub(): HubApi {
 }
 
 describe("MCP tool surface", () => {
-  it("exposes exactly the 28 tools from PROTOCOL.md", async () => {
+  it("exposes exactly the 37 tools from PROTOCOL.md", async () => {
     await withMcpClient(fakeHub(), async (client) => {
       const { tools } = await client.listTools();
       const names = tools.map((tool) => tool.name).sort();
       expect(names).toEqual([...EXPECTED_TOOLS].sort());
-      expect(tools).toHaveLength(28);
+      expect(tools).toHaveLength(37);
     });
   });
 

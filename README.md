@@ -31,9 +31,10 @@ It operates on the browser session that you use.
 - **WebMCP-aware.** Pages can expose typed tools, for example `search_catalog`
   or `reserve_table`. The agent calls them with JSON arguments. A vendored
   polyfill adds this function to stable Chrome.
-- **28 tools.** The tools cover tabs, navigation, snapshots, clicks, typing,
-  scrolling, screenshots, JavaScript evaluation, console logs, network capture,
-  and WebMCP. Read the full list in [`docs/FEATURES.md`](docs/FEATURES.md).
+- **37 tools.** The tools cover tabs, windows, navigation, snapshots, clicks,
+  typing, scrolling, screenshots, JavaScript evaluation, console logs, network
+  capture, file upload, downloads, native dialogs, an origin policy, and
+  WebMCP. Read the full list in [`docs/FEATURES.md`](docs/FEATURES.md).
 - **Several browsers at once.** Your daily Chrome and your test profiles can
   connect at the same time. Each tool can select one browser with `instanceId`.
 - **Local bridge only.** The hub listens on `127.0.0.1`. A token protects the
@@ -114,39 +115,55 @@ For the design rationale, read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Status
 
-The project works end to end. The server has 106 unit tests. The E2E suite has
+The project works end to end. The server has 138 unit tests. The E2E suite has
 54 steps. It loads the unpacked extension into a real installed Chrome. It
-exercises 26 of the 27 tools through the complete chain: MCP client, hub,
-native relay, extension. The suite also runs while a daily Chrome stays
-connected to the same server. The flow runner and its Google search parser
-were tested against the same daily Chrome.
+exercises the tools through the complete chain: MCP client, hub, native relay,
+extension. The suite also runs while a daily Chrome stays connected to the same
+server. The flow runner and its Google search parser were tested against the
+same daily Chrome.
 
 ## Roadmap — known gaps and future updates
 
+### Shipped 2026-09-16
+
+- [x] **Origin policy** — `get_origin_policy` / `set_origin_policy` with
+  allow-lists, deny-lists, and sensitive hosts. Submits on sensitive domains
+  require `confirm: true`.
+- [x] **Audit log** — every tool call is appended to
+  `reports/audit/audit-YYYY-MM-DD.ndjson` (tool, tab, URL, outcome, duration).
+- [x] **Native dialogs** — `get_dialog` / `handle_dialog` answer open dialogs
+  and can auto-dismiss them per tab, so a dialog never blocks automation.
+- [x] **Element-state waits** — `wait_for` accepts element states (`visible`,
+  `hidden`, `enabled`, `disabled`, `editable`) and `networkIdle`.
+- [x] **iframes and shadow DOM** — the content script runs in all frames;
+  `snapshot` merges frames into one ref space and lookup pierces shadow roots.
+- [x] **Coordinate clicks** — `click` accepts viewport `x`/`y` through trusted
+  CDP input.
+- [x] **File upload and downloads** — `upload_file` sets files via CDP, and
+  `list_downloads` tracks downloads.
+- [x] **Window management** — `list_windows`, `new_window`, `resize_window`.
+- [x] **REST queue persistence** — the REST example persists its job queue to
+  disk (`data/jobs.jsonl` + `data/pending.json`) and replays pending jobs on
+  restart.
+- [x] **HTTP transport** — `--http` exposes the same tools over streamable
+  HTTP next to stdio, so a remote agent or a second MCP client can connect.
+
 ### Gaps in daily automation
 
-- [ ] **iframes and shadow DOM** — The content script runs in the main frame only. `snapshot` and `click` cannot reach cross-origin iframes. They also cannot pierce shadow roots. This affects banks, embedded players, and many single-page applications.
-- [ ] **File upload and downloads** — There is no `upload_file` tool. The tools do not track downloads.
-- [ ] **Native dialogs** — The tools do not answer `alert`, `confirm`, `prompt`, or `beforeunload` automatically. An open dialog blocks all other actions.
-- [ ] **Window management** — There are no tools to create, resize, move, or maximize windows.
-- [ ] **Coordinate clicks** — `click` targets a ref or a selector only. Canvas applications and games need clicks at a screen position when refs do not exist.
-- [ ] **Element-state waits** — `wait_for` checks text and selectors only. There is no wait for a state such as enabled, visible, or editable. There is also no wait for network idle.
-- [ ] **Cookies and browsing data** — The extension has access to `chrome.cookies`, history, and bookmarks. No tool exposes this data yet.
-- [ ] **PDF, touch, clipboard** — The tools do not export PDF files. They do not emulate touch input. They do not read the clipboard.
+- [ ] **History and bookmarks** — cookies are covered (`get_cookies`), but no
+  tool exposes browsing history or bookmarks yet.
+- [ ] **PDF, touch, clipboard** — The tools do not export PDF files. They do
+  not emulate touch input. They do not read the clipboard.
 
 ### Product-level gaps
 
-- [ ] **Recorder** — There is no record mode. You cannot record your manual actions and get a replayable script.
-- [ ] **REST queue persistence** — The flow runner runs a flow file with retries, assertions, and HTML reports (`npm run flow -- flows/google-search.json`). But the REST example keeps its queue in memory only. It does not persist jobs.
+- [ ] **Recorder** — There is no record mode. You cannot record your manual
+  actions and get a replayable script.
 - [ ] **Disposable browsers** — The tools control connected browsers only. They cannot start a fresh isolated profile for each job. Only the E2E harness does this, through CDP.
-- [ ] **stdio-only MCP** — The server supports the stdio transport only. Remote agents cannot connect from another machine. The server also accepts one MCP client at a time. See the hub-file race in `docs/USAGE.md`.
-- [ ] **Distribution** — The package is not on npm. There is no installer for non-developers. There is no CI configuration in `.github/workflows`. There are no releases, tags, or changelog.
+- [ ] **Distribution** — CI runs build and tests (`.github/workflows/ci.yml`)
+  and a changelog exists, but the package is not on npm. There are no releases
+  or tags.
 - [ ] **WebMCP origin trial** — Track the native WebMCP rollout in Chrome. The tests exercise the polyfill path today. Related ideas: snapshot diffs and multi-tab session scripts on top of refs.
-
-### Security hardening
-
-- [ ] **Origin policy** — The agent can act on every site where you are logged in. This includes your bank. An allow-list or a deny-list should limit the agent. Submits on sensitive domains should ask for confirmation.
-- [ ] **Audit log** — No feature records the actions of the agent for later review.
 
 ## License
 

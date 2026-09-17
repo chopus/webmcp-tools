@@ -112,7 +112,7 @@ missing.
 | `navigate` | `{ tabId?, url, timeoutMs?=30000 }` | `{ tabId, url, title }` — resolves when `status === "complete"` or timeout (timeout → `ETIMEOUT`) |
 | `go_back` / `go_forward` | `{ tabId?, timeoutMs?=15000 }` | `{ tabId, url, title }` (no history → `{ url, title, navigated: false }`) |
 | `reload` | `{ tabId?, bypassCache?=false, timeoutMs?=30000 }` | `{ tabId, url, title }` |
-| `wait_for` | `{ tabId?, text?, selector?, timeoutMs?=10000 }` | `{ found: boolean, matched: "text"\|"selector"\|"none", tabId, url, title }` — polls ~250ms; exactly one of `text`/`selector` |
+| `wait_for` | `{ tabId?, text?, selector?, state?: "visible"\|"hidden"\|"enabled"\|"disabled"\|"editable", networkIdle?, idleMs?=500, timeoutMs?=30000 }` | `{ found: boolean, matched: "text"\|"selector"\|"networkIdle"\|"none", tabId, url, title }` — polls ~250ms; exactly one of `text`/`selector`/`networkIdle`; `state` (element state) requires `selector`; `idleMs` (quiet window) requires `networkIdle` |
 
 ### 3. Observation
 
@@ -151,9 +151,9 @@ is true when `maxElements` cut the list.
 
 | tool | params | result |
 |---|---|---|
-| `click` | `{ tabId?, ref?, selector?, button?="left"\|"right"\|"middle", clickCount?=1, modifiers?=[], trusted?=false, timeoutMs?=5000 }` | `{ clicked: true, tag, text? }` |
-| `type_text` | `{ tabId?, ref?, selector?, text, clearFirst?=true, submit?=false, trusted?=false, timeoutMs?=10000 }` | `{ typed: true }` — `submit` presses Enter after typing |
-| `press_key` | `{ tabId?, key, ref?, selector?, trusted?=false, timeoutMs?=5000 }` | `{ pressed: true }` — `key` like `Enter\|Tab\|Escape\|ArrowDown\|Backspace\|a\|Control+A` |
+| `click` | `{ tabId?, ref?, selector?, x?, y?, confirm?, button?="left"\|"right"\|"middle", clickCount?=1, modifiers?=[], trusted?=false, timeoutMs?=5000 }` | `{ clicked: true, tag, text? }` — exactly one of `ref`, `selector`, or `x`+`y` (both required) for a trusted CDP click at viewport coordinates (canvas/games) |
+| `type_text` | `{ tabId?, ref?, selector?, text, clearFirst?=true, submit?=false, confirm?, trusted?=false, timeoutMs?=10000 }` | `{ typed: true }` — `submit` presses Enter after typing; submitting on a sensitive origin (per the origin policy) requires `confirm:true` |
+| `press_key` | `{ tabId?, key, ref?, selector?, confirm?, trusted?=false, timeoutMs?=5000 }` | `{ pressed: true }` — `key` like `Enter\|Tab\|Escape\|ArrowDown\|Backspace\|a\|Control+A`; submitting on a sensitive origin (per the origin policy) requires `confirm:true` |
 | `hover` | `{ tabId?, ref?, selector?, timeoutMs?=5000 }` | `{ hovered: true }` |
 | `scroll` | `{ tabId?, direction?="up"\|"down"\|"left"\|"right", amount?=600, ref?, selector?, smooth?=true }` | `{ scrollX, scrollY }` — targets element if given else page |
 | `select_option` | `{ tabId?, ref?, selector?, value?, label?, index?, timeoutMs?=5000 }` | `{ selected: string[] }` — exactly one of value/label/index; fires `input`+`change` |
@@ -202,6 +202,34 @@ Semantics (all page evaluation happens in the **MAIN world** via
   polyfilled execution for declarative forms (set values, fire `submit`). Tool lookup by
   `name`. JSON-serialize results; async results awaited.
 
+### 8. Policy / dialogs / downloads / windows
+
+| tool | params | result |
+|---|---|---|
+| `get_origin_policy` | `{}` | `{ policy: { mode: "allowlist"\|"denylist", allowlist: string[], denylist: string[], sensitive: string[], requireConfirmOnSubmit: boolean } }` |
+| `set_origin_policy` | `{ policy: { mode?, allowlist?, denylist?, sensitive?, requireConfirmOnSubmit? } }` | `{ policy }` (merged) — partial merge of the given fields, forwarded as-is; host patterns are globs like `*.example.com` |
+| `get_dialog` | `{ tabId }` | `{ open: boolean, dialog?: { type: "alert"\|"confirm"\|"prompt"\|"beforeunload", message: string, defaultValue?: string }, watching: true }` — starts watching the tab for future dialogs; an open dialog blocks the page, but this and `handle_dialog` still work |
+| `handle_dialog` | `{ tabId, accept?=true, promptText?, autoDismiss? }` | `{ handled: true }` — answers the open dialog (`promptText` for prompts); `autoDismiss` makes the extension auto-answer future dialogs on that tab |
+| `upload_file` | `{ tabId?, selector?, ref?, path, timeoutMs?=10000 }` | `{ uploaded: true }` — exactly one of `selector`/`ref`; sets the file via CDP `DOM.setFileInputFiles` (works headlessly, no file picker); `path` is an absolute local file path |
+| `list_downloads` | `{ lastN?=20, state?: "in_progress"\|"complete"\|"interrupted" }` | `{ downloads: [{ id, state, url, filename, bytes, startTime?, endTime? }] }` — recent downloads tracked by the extension |
+| `list_windows` | `{}` | `{ windows: [{ id, state, tabs: Tab[] }] }` |
+| `new_window` | `{ url?="about:blank", width?, height? }` | `{ window: { id, state, tabs: Tab[] } }` |
+| `resize_window` | `{ windowId, width?, height?, state?: "normal"\|"maximized"\|"minimized"\|"fullscreen" }` | `{ window: { id, state, tabs: Tab[] } }` — resizes and/or changes the state |
+
+Semantics:
+
+- **Origin policy** (stored by the extension, applies to automation actions): in
+  `allowlist` mode only listed origins may be automated; in `denylist` mode listed
+  origins are refused. `sensitive` hosts (and `requireConfirmOnSubmit`) make submits
+  (`type_text` with `submit:true`, `press_key` of Enter on a form) fail with `ECONFIRM`
+  unless the call passes `confirm: true`. Host entries are glob patterns
+  (`example.com`, `*.example.com`).
+- **Dialogs** are captured via a `chrome.debugger` CDP attach
+  (`Page.javascriptDialogOpening` / `Page.handleJavaScriptDialog`) so they can be
+  inspected and answered even though a native dialog blocks the page.
+- **Downloads** come from `chrome.downloads` (extension tracks state changes);
+  **windows** from `chrome.windows` (Tab objects as in §1).
+
 ## Server-side MCP behavior
 
 - Tool names/params are exposed 1:1 under the same names (camelCase→snake_case already
@@ -211,3 +239,7 @@ Semantics (all page evaluation happens in the **MAIN world** via
 - If the extension is not connected when a tool is called → MCP error
   `extension_not_connected` with instructions to load the extension + install the host.
 - Per-request hub timeout: `timeoutMs` (cap 120000). Timeouts surface as MCP tool errors.
+- Every tool call is appended (best-effort) as one NDJSON line to
+  `reports/audit/audit-YYYY-MM-DD.ndjson` (override with `$WEBMCP_AUDIT_DIR`): only
+  metadata — `ts, tool, instanceId, tabId, url, ok, errorCode?, durationMs` — never
+  typed text, values or full params. Audit failures never fail a tool call.

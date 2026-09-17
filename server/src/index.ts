@@ -14,8 +14,9 @@
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { detectMode } from "./args.js";
+import { detectMode, parseHttpPort } from "./args.js";
 import { Hub } from "./hub.js";
+import { startHttpServer, type HttpServerHandle } from "./http.js";
 import { log } from "./log.js";
 import { createMcpServer } from "./mcp/server.js";
 import { runRelay } from "./relay.js";
@@ -25,6 +26,9 @@ const USAGE = `webmcp-browser ${VERSION} — MCP server + Chrome native-messagin
 
 Usage:
   webmcp-browser                     MCP server mode over stdio (default)
+  webmcp-browser --http[=port]       MCP over stdio AND streamable HTTP on
+                                     http://127.0.0.1:<port>/mcp (default port
+                                     8930; also --http --port <port>)
   webmcp-browser --native-host       Relay mode: native messaging <-> hub TCP
   webmcp-browser --flow <flow.json>  Run a flow file (retries, assertions, HTML report)
   webmcp-browser --print-mcp-config  Print an MCP client config snippet (JSON)
@@ -58,28 +62,43 @@ function printMcpConfig(): void {
   process.stdout.write(JSON.stringify(config, null, 2) + "\n");
 }
 
-async function runMcpMode(): Promise<void> {
+async function runMcpMode(httpPort: number | undefined): Promise<void> {
   const hub = new Hub();
   await hub.listen();
   const server = createMcpServer(hub);
   await server.connect(new StdioServerTransport());
   log(`webmcp-browser v${VERSION} MCP server ready on stdio`);
 
+  // --http: same hub, second MCP transport. Remote agents (ssh tunnel /
+  // proxy) and a second concurrent MCP client talk streamable HTTP while the
+  // stdio MCP server keeps running.
+  let http: HttpServerHandle | null = null;
+  if (httpPort !== undefined) {
+    http = await startHttpServer(hub, { port: httpPort });
+  }
+
   let shuttingDown = false;
   const shutdown = (reason: string): void => {
     if (shuttingDown) return;
     shuttingDown = true;
     log(`${reason} received, shutting down`);
-    hub.closeSync();
-    process.exit(0);
+    void (async () => {
+      if (http) await http.close().catch(() => undefined);
+      hub.closeSync();
+      process.exit(0);
+    })();
   };
   process.on("SIGINT", () => shutdown("SIGINT"));
   process.on("SIGTERM", () => shutdown("SIGTERM"));
-  // If the MCP client goes away (stdin EOF / transport closed), exit so the
-  // discovery file is removed and the port is released.
-  server.server.onclose = () => shutdown("transport closed");
-  process.stdin.on("end", () => shutdown("stdin end"));
-  process.stdin.on("close", () => shutdown("stdin closed"));
+  if (httpPort === undefined) {
+    // Without --http: exit when the MCP client goes away (stdin EOF /
+    // transport closed) so the discovery file is removed and the port freed.
+    server.server.onclose = () => shutdown("transport closed");
+    process.stdin.on("end", () => shutdown("stdin end"));
+    process.stdin.on("close", () => shutdown("stdin closed"));
+  }
+  // With --http the HTTP sessions keep the server alive; stop it with a
+  // signal instead.
   process.on("exit", () => hub.closeSync());
 }
 
@@ -104,7 +123,7 @@ async function main(): Promise<void> {
       process.exit(exitCode);
     }
     case "mcp":
-      await runMcpMode();
+      await runMcpMode(parseHttpPort(process.argv.slice(2)));
       break;
   }
 }
