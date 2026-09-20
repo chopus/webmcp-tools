@@ -314,6 +314,57 @@
   // evaluation via chrome.scripting is blocked in ISOLATED worlds by the
   // extension's MV3 CSP and in MAIN worlds by the page's CSP.
 
+  /**
+   * Wake a frozen/discarded tab by activating it, then wait for the renderer
+   * to come back (frozen tabs thaw on activation; discarded tabs reload).
+   * Activation steals focus within the tab's window — that is the documented
+   * cost of unfreeze:true.
+   */
+  async function unfreezeTab(tabId) {
+    try {
+      await chrome.tabs.update(tabId, { active: true });
+    } catch (e) {
+      void chrome.runtime.lastError;
+      throw U.err(
+        `cannot activate tab ${tabId} to unfreeze it (${(e && e.message) || e})`,
+        'ETAB_NOT_FOUND'
+      );
+    }
+    const deadline = Date.now() + 10000;
+    while (Date.now() < deadline) {
+      const t = await NS.tabs.getTab(tabId); // ETAB_NOT_FOUND if closed
+      if (!t.frozen && !t.discarded) {
+        if (t.status !== 'complete') {
+          await NS.tabs.waitTabComplete(tabId, 15000);
+        }
+        return;
+      }
+      await U.sleep(150);
+    }
+    throw U.err(`tab ${tabId} did not wake within 10s of activation`, 'ETIMEOUT');
+  }
+
+  /** Why an evaluate timeout most likely happened, from the tab's live state. */
+  async function timeoutHint(tabId) {
+    let tab;
+    try {
+      tab = await NS.tabs.getTab(tabId);
+    } catch (e) {
+      return `; tab ${tabId} is gone`;
+    }
+    if (tab.frozen) {
+      return '; the tab is frozen by Chrome (Memory Saver) — activate it (activate_tab) or retry with unfreeze:true';
+    }
+    if (tab.discarded) {
+      return '; the tab was discarded by Chrome — reload it before evaluating';
+    }
+    if (!tab.active) {
+      return '; the tab was inactive — Chrome freezes background tabs; activate it or retry with unfreeze:true';
+    }
+    return '; the tab was active, so the script itself is likely still running ' +
+      '(an infinite loop, or a promise that never settles while awaitPromise:true waits for it)';
+  }
+
   async function evaluate(tab, params) {
     const fnSrc = U.reqStr(params, 'function');
     let argsVal = params.args;
@@ -324,6 +375,11 @@
     const world = params.world === 'ISOLATED' ? 'ISOLATED' : 'MAIN';
     const awaitPromise = U.optBool(params, 'awaitPromise', true);
     const timeoutMs = Math.max(100, U.optInt(params, 'timeoutMs', 10000));
+
+    if (U.optBool(params, 'unfreeze', false) && (tab.frozen || tab.discarded)) {
+      await unfreezeTab(tab.id);
+      tab = await NS.tabs.getTab(tab.id);
+    }
 
     let argsJson;
     try {
@@ -341,6 +397,14 @@
         `evaluate timed out after ${timeoutMs}ms`
       );
     } catch (e) {
+      if (e && e.code === 'ETIMEOUT') {
+        // A bare timeout hides its cause; name the likely one so "too slow"
+        // is distinguishable from "tab suspended" / "deadlocked".
+        throw U.err(
+          `evaluate timed out after ${timeoutMs}ms in tab ${tab.id}` + (await timeoutHint(tab.id)),
+          'ETIMEOUT'
+        );
+      }
       if (e && e.code) throw e;
       throw U.err(
         `evaluate failed in tab ${tab.id} (${(e && e.message) || e})`,

@@ -444,19 +444,39 @@ const TOOL_DEFS: ToolDef[] = [
   // ----- §5 JavaScript -----
   {
     name: "evaluate",
-    description: 'Evaluate a JS function "(args) => expression-or-promise" in a tab (MAIN world by default). Only JSON-serializable results are returned.',
+    description:
+      'Evaluate a JS function "(args) => expression-or-promise" in a tab (MAIN world by default). ' +
+      "Only JSON-serializable results are returned. Chrome-frozen background tabs fail fast with " +
+      "ETAB_FROZEN; pass unfreeze:true to activate such a tab automatically before evaluating.",
     shape: {
       ...tabIdShape,
       function: z.string(),
       args: z.record(z.unknown()).optional().default({}),
       world: z.enum(["MAIN", "ISOLATED"]).optional().default("MAIN"),
       awaitPromise: z.boolean().optional().default(true),
+      unfreeze: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe(
+          "activate the tab first if Chrome froze/discarded it (Memory Saver) — " +
+            "a frozen renderer never runs scripts; activation steals focus in the tab's window",
+        ),
       ...timeoutShape(10000),
     },
     timeoutMs: 10000,
   },
 
   // ----- §6 Console / network -----
+  {
+    name: "watch_console",
+    description:
+      "Attach console capture to a tab explicitly (content script + console hook). Use it to watch " +
+      "a tab the agent never drove (e.g. one the user already had open); capture starts at this " +
+      "call — earlier logs are not recoverable. get_console_logs attaches on first read as well.",
+    shape: { ...tabIdShape },
+    timeoutMs: 15000,
+  },
   {
     name: "get_console_logs",
     description: "Get recent console logs for a tab (ring buffer, cleared on navigation).",
@@ -674,7 +694,13 @@ export function createMcpServer(hub: HubApi): McpServer {
         };
         try {
           def.validate?.(args);
-          const timeoutMs = clampTimeout(args.timeoutMs, def.timeoutMs);
+          let timeoutMs = clampTimeout(args.timeoutMs, def.timeoutMs);
+          // unfreeze can take ~25s on its own (activate a frozen tab + wait
+          // for its reload) before the script even runs — raise the hub cap
+          // so it is not aborted mid-thaw. The 120s ceiling still applies.
+          if (def.name === "evaluate" && args.unfreeze === true) {
+            timeoutMs = Math.max(timeoutMs, 45000);
+          }
           const { instanceId, ...params } = args;
           const result = (await hub.request(
             def.name,

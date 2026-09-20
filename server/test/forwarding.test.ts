@@ -192,6 +192,7 @@ describe("MCP forwarding to the hub", () => {
         args: { a: 41 },
         world: "MAIN",
         awaitPromise: true,
+        unfreeze: false,
         timeoutMs: 10000,
       });
     });

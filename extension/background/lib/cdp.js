@@ -35,6 +35,62 @@
     });
   }
 
+  /**
+   * Fail fast (ETAB_FROZEN) on tabs whose renderer cannot answer CDP.
+   * Chrome's Memory Saver freezes background tabs (renderer suspended) and
+   * discards unused ones (renderer unloaded); Runtime.evaluate on such a tab
+   * would silently never return, surfacing as a bare tool timeout.
+   */
+  async function assertAttachable(tabId) {
+    let tab = null;
+    try {
+      tab = await chrome.tabs.get(tabId);
+    } catch (e) {
+      return; // a missing tab errors in the caller with its own code
+    }
+    if (tab && tab.frozen) {
+      throw U.err(
+        `tab ${tabId} is frozen by Chrome (Memory Saver suspends background tabs) — ` +
+        'its renderer will not run scripts or answer CDP until activated. ' +
+        'Call activate_tab first, or pass unfreeze:true on evaluate',
+        'ETAB_FROZEN'
+      );
+    }
+    if (tab && tab.discarded) {
+      throw U.err(
+        `tab ${tabId} was discarded by Chrome (Memory Saver unloaded it) — ` +
+        'navigate or reload it before driving it',
+        'ETAB_FROZEN'
+      );
+    }
+  }
+
+  const ATTACH_TIMEOUT_MS = 5000;
+
+  /** Classify an attach failure into an actionable EDEBUGGER error. */
+  function attachError(tabId, e) {
+    const raw = (e && e.message) || String(e);
+    if (/another debugger|already attached/i.test(raw)) {
+      return U.err(
+        `cannot attach the debugger to tab ${tabId}: another debugger (usually DevTools) ` +
+        'is already attached — close DevTools on that tab and retry',
+        'EDEBUGGER'
+      );
+    }
+    if (e && e.code === 'ETIMEOUT') {
+      return U.err(
+        `chrome.debugger.attach did not complete for tab ${tabId} within ${ATTACH_TIMEOUT_MS}ms — ` +
+        'DevTools may be open on that tab (close it) or its renderer may be suspended',
+        'EDEBUGGER'
+      );
+    }
+    return U.err(
+      `debugger attach failed for tab ${tabId} (${raw}); ` +
+      'DevTools or another debugger may already be attached',
+      'EDEBUGGER'
+    );
+  }
+
   function detach(tabId) {
     return new Promise((resolve) => {
       chrome.debugger.detach({ tabId }, () => {
@@ -52,16 +108,13 @@
    * debugger attached after fn returns (event listeners need the attach).
    */
   async function withDebugger(tabId, fn) {
+    await assertAttachable(tabId);
     let state = attached.get(tabId);
     if (!state) {
       try {
-        await attach(tabId);
+        await U.withTimeout(attach(tabId), ATTACH_TIMEOUT_MS, 'attach did not complete');
       } catch (e) {
-        throw U.err(
-          `debugger attach failed for tab ${tabId} (${(e && e.message) || e}); ` +
-          'DevTools or another debugger may already be attached',
-          'EDEBUGGER'
-        );
+        throw attachError(tabId, e);
       }
       state = { capture: false, netEnabled: false, dialogWatch: false };
       attached.set(tabId, state);

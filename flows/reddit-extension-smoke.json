@@ -1,0 +1,73 @@
+{
+  "name": "reddit-extension-smoke",
+  "description": "One-command regression smoke test for an extension that injects a control into Reddit posts (e.g. a Post Saver pill). Opens Reddit, waits for <shreddit-post>, counts the injected controls through open shadow roots (evaluate + functionFile), asserts the count is > 0, clicks one, and takes a screenshot. Run after every version bump: npm run flow -- flows/reddit-extension-smoke.json --var pillSelector=<css>",
+  "vars": {
+    "pillSelector": "[data-postsaver-pill]",
+    "url": "https://www.reddit.com/"
+  },
+  "steps": [
+    {
+      "name": "browser is connected",
+      "tool": "get_browser_info",
+      "expect": [
+        { "path": "chromeVersion", "op": "exists", "desc": "a Chrome answered through the extension" }
+      ]
+    },
+    {
+      "name": "open a blank tab",
+      "tool": "new_tab",
+      "args": { "url": "about:blank", "active": true },
+      "save": "tab",
+      "saveFrom": "tab",
+      "expect": [
+        { "path": "tab.tabId", "op": "type", "type": "number" }
+      ]
+    },
+    {
+      "name": "navigate to Reddit",
+      "tool": "navigate",
+      "args": { "tabId": "{{tab.tabId}}", "url": "{{url}}", "timeoutMs": 45000 },
+      "retries": 1
+    },
+    {
+      "name": "feed posts render (shreddit-post)",
+      "tool": "wait_for",
+      "args": { "tabId": "{{tab.tabId}}", "selector": "shreddit-post", "timeoutMs": 20000 },
+      "retries": 2,
+      "retryDelayMs": 2000
+    },
+    {
+      "name": "count injected controls through shadow roots",
+      "tool": "evaluate",
+      "args": { "tabId": "{{tab.tabId}}", "world": "MAIN", "timeoutMs": 20000, "awaitPromise": false },
+      "functionFile": "lib/reddit-pill-count.js",
+      "save": "counts",
+      "saveFrom": "result",
+      "expect": [
+        { "path": "result.posts", "op": "gt", "value": 0, "desc": "feed rendered at least one post" },
+        { "path": "result.pills", "op": "gt", "value": 0, "desc": "the extension injected its control into the posts" }
+      ],
+      "retries": 2,
+      "retryDelayMs": 2000
+    },
+    {
+      "name": "click the first injected control",
+      "tool": "click",
+      "args": { "tabId": "{{tab.tabId}}", "selector": "{{pillSelector}}", "timeoutMs": 10000 },
+      "retries": 1
+    },
+    {
+      "name": "screenshot the result",
+      "tool": "screenshot",
+      "args": { "tabId": "{{tab.tabId}}", "format": "jpeg" }
+    }
+  ],
+  "finally": [
+    {
+      "name": "close the tab",
+      "tool": "close_tab",
+      "args": { "tabId": "{{tab.tabId}}" },
+      "optional": true
+    }
+  ]
+}

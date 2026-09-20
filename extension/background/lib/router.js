@@ -258,6 +258,23 @@
     evaluate: (params) => withTab(params, NS.automation.evaluate),
 
     // ---- §6 Console / network -----------------------------------------------
+
+    /**
+     * Explicitly attach console capture to a tab (content script + MAIN-world
+     * console hook). get_console_logs attaches on first read too, but only
+     * from that moment on — this tool exists so the agent can opt a tab it
+     * never drove (e.g. one the user already had open) into capture before
+     * the interesting logs happen.
+     */
+    watch_console: (params) => withTab(params, async (tab) => {
+      await NS.contentBridge.ensureInjected(tab.id);
+      return {
+        watched: true,
+        tabId: tab.id,
+        note: 'console capture is attached from now on; logs emitted before this call are not recoverable'
+      };
+    }),
+
     get_console_logs: async (params) => {
       const tab = await NS.tabs.resolveTab(params.tabId);
       return NS.consoleBuffer.getLogs(tab, params);

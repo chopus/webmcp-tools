@@ -17,7 +17,7 @@ afterAll(() => {
   rmSync(auditDir, { recursive: true, force: true });
 });
 
-// The exact tool surface from docs/PROTOCOL.md §1–§8 (37 tools).
+// The exact tool surface from docs/PROTOCOL.md §1–§8 (38 tools).
 const EXPECTED_TOOLS = [
   // §1 Browser / tabs
   "get_browser_info",
@@ -47,6 +47,7 @@ const EXPECTED_TOOLS = [
   // §5 JavaScript
   "evaluate",
   // §6 Console / network
+  "watch_console",
   "get_console_logs",
   "get_network_requests",
   "stop_network_capture",
@@ -73,12 +74,12 @@ function fakeHub(): HubApi {
 }
 
 describe("MCP tool surface", () => {
-  it("exposes exactly the 37 tools from PROTOCOL.md", async () => {
+  it("exposes exactly the 38 tools from PROTOCOL.md", async () => {
     await withMcpClient(fakeHub(), async (client) => {
       const { tools } = await client.listTools();
       const names = tools.map((tool) => tool.name).sort();
       expect(names).toEqual([...EXPECTED_TOOLS].sort());
-      expect(tools).toHaveLength(37);
+      expect(tools).toHaveLength(38);
     });
   });
 
