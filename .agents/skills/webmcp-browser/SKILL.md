@@ -11,7 +11,7 @@ daily profile). When this skill applies, do not spin up any other browser
 automation. Everything stays on the machine: the hub binds to `127.0.0.1` and
 every tool call is appended to `reports/audit/audit-YYYY-MM-DD.ndjson`.
 
-Run commands from the repository root (`C:\dev\webmcp-tools`).
+Run commands from the repository root — your webmcp-tools checkout (e.g. `C:\dev\webmcp-tools` on Windows, `/Users/dalinfo-pro-03/dev/webmcp-tools` on macOS).
 
 ## Pick an access path
 
