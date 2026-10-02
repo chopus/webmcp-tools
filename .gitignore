@@ -13,3 +13,8 @@ installer/*.generated.*
 
 .tmp/
 reports/
+
+# local run artifacts — the skill CLI writes screenshot files to the CWD
+webmcp-shot-*.png
+webmcp-shot-*.jpg
+verify-*.jpg
