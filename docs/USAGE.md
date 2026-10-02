@@ -158,6 +158,22 @@ node server/dist/index.js --http --port 8931  # same, --port form
 | URL | `http://127.0.0.1:<port>/mcp` (default port 8930) |
 | Bind address | `127.0.0.1` only |
 | Transport | MCP streamable HTTP: `POST` JSON-RPC, `GET` SSE stream, `DELETE` session |
+| Auth | Required on every request: `Authorization: Bearer <token>` or `?token=<token>` |
+
+**Every request must authenticate.** Unauthenticated requests get a 401 whose
+message names the fix. The token comes from `--http-token <t>` (or env
+`WEBMCP_HTTP_TOKEN`); without either, the server generates one and writes
+`{ port, token }` to a 0600 discovery file — `WEBMCP_HTTP_FILE`, default
+`<os.tmpdir()>/webmcp-tools-http.json`, the same pattern as the hub discovery
+file. Local same-user helpers (the skill CLI) read that file automatically, so
+zero-setup behavior is unchanged, while other local users and stray port scans
+cannot drive the browser. The file is removed on shutdown.
+
+```bash
+TOKEN=$(node -e "console.log(JSON.parse(require('fs').readFileSync(require('os').tmpdir()+'/webmcp-tools-http.json','utf8')).token)")
+curl -H "Authorization: Bearer $TOKEN" -H "content-type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' http://127.0.0.1:8930/mcp
+```
 
 Sessions are stateful, like the SDK's streamable-http examples. The first
 `initialize` POST (sent without a session header) creates a fresh server

@@ -26,6 +26,11 @@ Run commands from the repository root — your webmcp-tools checkout (e.g. `C:\d
    the extension reconnects (~30 s after a fresh server start), and prints the
    tool's text result. Screenshots are saved to a file and the path is printed.
    Stop a server the helper started with `… webmcp-call.mjs stop`.
+   The HTTP server requires a bearer token; the helper reads it automatically
+   from the 0600 discovery file the server writes
+   (`<os-tmpdir>/webmcp-tools-http.json`, override with `WEBMCP_HTTP_FILE`).
+   For a custom `WEBMCP_HTTP_URL` (tunnel/proxy), set `WEBMCP_HTTP_TOKEN` to
+   that server's token.
    For `evaluate`, shell-quoted JSON mangles backslashes/quotes in real
    functions — pass them as files instead: `--function-file probe.js` (the
    function source), `--args-file vars.json` (JSON args object, merged under

@@ -1,3 +1,6 @@
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/sdk/types.js";
 import type { HubApi } from "../src/hub.js";
@@ -5,6 +8,7 @@ import { startHttpServer, type HttpServerHandle } from "../src/http.js";
 import { TOOL_NAMES } from "../src/mcp/server.js";
 
 const ACCEPT = "application/json, text/event-stream";
+const TOKEN = "test-token-123";
 
 function stubHub(): HubApi {
   return {
@@ -21,6 +25,7 @@ function postRpc(
   id: number | null,
   params?: unknown,
   sessionId?: string,
+  headers: Record<string, string> = {},
 ): Promise<Response> {
   return fetch(`${url}/mcp`, {
     method: "POST",
@@ -28,9 +33,21 @@ function postRpc(
       "content-type": "application/json",
       accept: ACCEPT,
       ...(sessionId ? { "mcp-session-id": sessionId } : {}),
+      ...headers,
     },
     body: JSON.stringify({ jsonrpc: "2.0", id, method, ...(params !== undefined ? { params } : {}) }),
   });
+}
+
+/** Authorized POST (the default for protocol-level tests below). */
+function postAuth(
+  url: string,
+  method: string,
+  id: number | null,
+  params?: unknown,
+  sessionId?: string,
+): Promise<Response> {
+  return postRpc(url, method, id, params, sessionId, { authorization: `Bearer ${TOKEN}` });
 }
 
 /**
@@ -50,25 +67,72 @@ async function readMessages(res: Response): Promise<Array<Record<string, unknown
     .map((line) => JSON.parse(line.slice("data:".length).trim()) as Record<string, unknown>);
 }
 
+function initializeParams() {
+  return {
+    protocolVersion: LATEST_PROTOCOL_VERSION,
+    capabilities: {},
+    clientInfo: { name: "vitest", version: "0.0.0" },
+  };
+}
+
 let handle: HttpServerHandle;
 let baseUrl: string;
+let tokenDir: string;
+let tokenFile: string;
 
 beforeAll(async () => {
-  handle = await startHttpServer(stubHub(), { port: 0 });
+  // Explicit token + tmp discovery file: the default path is shared with the
+  // live server and must not be touched by tests.
+  tokenDir = mkdtempSync(path.join(os.tmpdir(), "webmcp-http-"));
+  tokenFile = path.join(tokenDir, "http.json");
+  handle = await startHttpServer(stubHub(), { port: 0, token: TOKEN, tokenFile });
   baseUrl = `http://127.0.0.1:${handle.port}`;
 });
 
 afterAll(async () => {
   await handle.close();
+  rmSync(tokenDir, { recursive: true, force: true });
 });
 
-describe("HTTP (streamable) MCP transport", () => {
-  it("initialize returns 200 with a session id and server info", async () => {
-    const res = await postRpc(baseUrl, "initialize", 1, {
-      protocolVersion: LATEST_PROTOCOL_VERSION,
-      capabilities: {},
-      clientInfo: { name: "vitest", version: "0.0.0" },
+describe("HTTP (streamable) MCP transport — authentication", () => {
+  it("writes { port, token } to the discovery file", () => {
+    const parsed = JSON.parse(readFileSync(tokenFile, "utf8")) as { port?: number; token?: string };
+    expect(parsed.port).toBe(handle.port);
+    expect(parsed.token).toBe(TOKEN);
+    expect(handle.token).toBe(TOKEN);
+  });
+
+  it("rejects requests without a token (401, message names the fix)", async () => {
+    const res = await postRpc(baseUrl, "initialize", 1, initializeParams());
+    expect(res.status).toBe(401);
+    expect(res.headers.get("www-authenticate")).toBe("Bearer");
+    const messages = await readMessages(res);
+    expect(String(messages[0]?.error?.message)).toMatch(/Bearer/i);
+  });
+
+  it("rejects a wrong token (401)", async () => {
+    const res = await postRpc(baseUrl, "initialize", 1, initializeParams(), undefined, {
+      authorization: "Bearer not-the-token",
     });
+    expect(res.status).toBe(401);
+    await res.arrayBuffer();
+  });
+
+  it("authenticates via ?token= query parameter too", async () => {
+    const res = await fetch(`${baseUrl}/mcp?token=${encodeURIComponent(TOKEN)}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: ACCEPT },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: initializeParams() }),
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("mcp-session-id")).toBeTruthy();
+    await res.arrayBuffer();
+  });
+});
+
+describe("HTTP (streamable) MCP transport — protocol", () => {
+  it("initialize returns 200 with a session id and server info", async () => {
+    const res = await postAuth(baseUrl, "initialize", 1, initializeParams());
     expect(res.status).toBe(200);
     const sessionId = res.headers.get("mcp-session-id");
     expect(sessionId).toBeTruthy();
@@ -80,16 +144,12 @@ describe("HTTP (streamable) MCP transport", () => {
   });
 
   it("tools/list on the same session exposes the tool catalog", async () => {
-    const init = await postRpc(baseUrl, "initialize", 1, {
-      protocolVersion: LATEST_PROTOCOL_VERSION,
-      capabilities: {},
-      clientInfo: { name: "vitest", version: "0.0.0" },
-    });
+    const init = await postAuth(baseUrl, "initialize", 1, initializeParams());
     const sessionId = init.headers.get("mcp-session-id");
     expect(sessionId).toBeTruthy();
     await readMessages(init); // drain so the connection is reusable
 
-    const res = await postRpc(baseUrl, "tools/list", 2, undefined, sessionId!);
+    const res = await postAuth(baseUrl, "tools/list", 2, undefined, sessionId!);
     expect(res.status).toBe(200);
     const messages = await readMessages(res);
     const result = messages.find((m) => m.id === 2)?.result as
@@ -102,33 +162,31 @@ describe("HTTP (streamable) MCP transport", () => {
   });
 
   it("DELETE terminates the session; later POSTs are rejected", async () => {
-    const init = await postRpc(baseUrl, "initialize", 1, {
-      protocolVersion: LATEST_PROTOCOL_VERSION,
-      capabilities: {},
-      clientInfo: { name: "vitest", version: "0.0.0" },
-    });
+    const init = await postAuth(baseUrl, "initialize", 1, initializeParams());
     const sessionId = init.headers.get("mcp-session-id");
     await readMessages(init);
 
     const deleted = await fetch(`${baseUrl}/mcp`, {
       method: "DELETE",
-      headers: { "mcp-session-id": sessionId! },
+      headers: { "mcp-session-id": sessionId!, authorization: `Bearer ${TOKEN}` },
     });
     expect(deleted.status).toBe(200);
 
-    const res = await postRpc(baseUrl, "tools/list", 3, undefined, sessionId!);
+    const res = await postAuth(baseUrl, "tools/list", 3, undefined, sessionId!);
     expect(res.status).toBe(404);
     await res.arrayBuffer(); // drain error body
   });
 
   it("POST without a session id (and not initialize) is a 400", async () => {
-    const res = await postRpc(baseUrl, "tools/list", 1);
+    const res = await postAuth(baseUrl, "tools/list", 1);
     expect(res.status).toBe(400);
     await res.arrayBuffer();
   });
 
   it("GET without an active session is a 405", async () => {
-    const res = await fetch(`${baseUrl}/mcp`, { headers: { accept: ACCEPT } });
+    const res = await fetch(`${baseUrl}/mcp`, {
+      headers: { accept: ACCEPT, authorization: `Bearer ${TOKEN}` },
+    });
     expect(res.status).toBe(405);
     await res.arrayBuffer();
   });
@@ -136,7 +194,7 @@ describe("HTTP (streamable) MCP transport", () => {
   it("unsupported methods get 405", async () => {
     const res = await fetch(`${baseUrl}/mcp`, {
       method: "PUT",
-      headers: { "content-type": "application/json", accept: ACCEPT },
+      headers: { "content-type": "application/json", accept: ACCEPT, authorization: `Bearer ${TOKEN}` },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
     });
     expect(res.status).toBe(405);

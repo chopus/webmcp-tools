@@ -3,6 +3,12 @@
 All notable changes to this project are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- HTTP transport authentication (`--http`): every request must present `Authorization: Bearer <token>` or `?token=<token>`; unauthenticated requests get a 401 whose message names the fix. The token is the value of `--http-token` / `WEBMCP_HTTP_TOKEN`, or generated at startup and written to a 0600 discovery file (`WEBMCP_HTTP_FILE`, default `<tmpdir>/webmcp-tools-http.json`, removed on shutdown — same pattern as the hub discovery file). Local same-user helpers (the skill CLI) read it automatically, so zero-setup behavior is unchanged; other local users and port scans can no longer drive the browser. Previously the endpoint accepted unauthenticated requests from any local process.
+
 ## [0.3.1] - 2026-10-02
 
 Error-reporting ergonomics from the 2026-09-20 Chrome-extension debugging session — capability was fine, round trips were lost to unnamed errors — plus a macOS native-host launcher fix.

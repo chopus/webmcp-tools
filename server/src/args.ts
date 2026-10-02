@@ -49,6 +49,33 @@ export function parseHttpPort(argv: readonly string[]): number | undefined {
 }
 
 /**
+ * Parse the `--http-token` option (an MCP-mode modifier, not a mode).
+ *
+ * - `--http-token <token>` / `--http-token=<token>` → that token
+ * - absent → `undefined` (the server generates one and writes it to the
+ *   0600 discovery file; `WEBMCP_HTTP_TOKEN` is also honored by index.ts)
+ *
+ * Throws a user-readable `Error` on an empty value.
+ */
+export function parseHttpToken(argv: readonly string[]): string | undefined {
+  const eq = argv.find((item) => item.startsWith("--http-token="));
+  if (eq) {
+    const value = eq.slice("--http-token=".length);
+    if (!value) throw new Error('--http-token= expects a non-empty token value');
+    return value;
+  }
+  const idx = argv.indexOf("--http-token");
+  if (idx !== -1) {
+    const value = argv[idx + 1];
+    if (!value || value.startsWith("--")) {
+      throw new Error('--http-token expects a token value (--http-token <token>)');
+    }
+    return value;
+  }
+  return undefined;
+}
+
+/**
  * Decide which mode the binary should run in.
  *
  * - `--version` / `--help` / `--print-mcp-config` are explicit CLI requests.

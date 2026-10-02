@@ -40,6 +40,27 @@ const SERVER_ENTRY = path.join(REPO_ROOT, "server", "dist", "index.js");
 const ENDPOINT = process.env.WEBMCP_HTTP_URL || "http://127.0.0.1:8930/mcp";
 const SESSION_FILE = path.join(tmpdir(), "webmcp-skill-session.json");
 const PID_FILE = path.join(tmpdir(), "webmcp-skill-server.pid");
+// The server requires a bearer token on every request. Locally it writes
+// { port, token } to this 0600 discovery file; WEBMCP_HTTP_TOKEN wins (for
+// custom WEBMCP_HTTP_URL endpoints behind tunnels).
+const TOKEN_FILE = process.env.WEBMCP_HTTP_FILE || path.join(tmpdir(), "webmcp-tools-http.json");
+
+/** The bearer token for the endpoint, or null when none is configured. */
+function authToken() {
+  if (process.env.WEBMCP_HTTP_TOKEN) return process.env.WEBMCP_HTTP_TOKEN;
+  if (process.env.WEBMCP_HTTP_URL) return null; // custom endpoint: no local file to read
+  try {
+    const parsed = JSON.parse(readFileSync(TOKEN_FILE, "utf8"));
+    return typeof parsed.token === "string" ? parsed.token : null;
+  } catch {
+    return null; // server predates auth or is not up yet
+  }
+}
+
+function authHeaders() {
+  const token = authToken();
+  return token ? { authorization: `Bearer ${token}` } : {};
+}
 const HEADERS = {
   "content-type": "application/json",
   accept: "application/json, text/event-stream",
@@ -75,10 +96,10 @@ Endpoint: ${ENDPOINT} (override with WEBMCP_HTTP_URL)`);
 
 async function endpointUp() {
   try {
-    // Any HTTP answer — even 400 "initialize first" — means the server listens.
+    // Any HTTP answer — even 401 "missing token" — means the server listens.
     await fetch(ENDPOINT, {
       method: "POST",
-      headers: HEADERS,
+      headers: { ...HEADERS, ...authHeaders() },
       body: JSON.stringify({ jsonrpc: "2.0", id: 0, method: "tools/list" }),
     });
     return true;
@@ -146,7 +167,7 @@ async function initialize() {
   const id = nextId++;
   const res = await fetch(ENDPOINT, {
     method: "POST",
-    headers: HEADERS,
+    headers: { ...HEADERS, ...authHeaders() },
     body: JSON.stringify({
       jsonrpc: "2.0",
       id,
@@ -164,7 +185,7 @@ async function initialize() {
   await parseRpc(res, id);
   const note = await fetch(ENDPOINT, {
     method: "POST",
-    headers: { ...HEADERS, "mcp-session-id": sessionId },
+    headers: { ...HEADERS, ...authHeaders(), "mcp-session-id": sessionId },
     body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }),
   });
   await note.text().catch(() => "");
@@ -174,7 +195,7 @@ async function initialize() {
 
 async function request(method, params, sessionId) {
   const id = nextId++;
-  const headers = { ...HEADERS };
+  const headers = { ...HEADERS, ...authHeaders() };
   if (sessionId) headers["mcp-session-id"] = sessionId;
   const res = await fetch(ENDPOINT, {
     method: "POST",

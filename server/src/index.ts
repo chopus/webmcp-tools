@@ -14,7 +14,7 @@
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { detectMode, parseHttpPort } from "./args.js";
+import { detectMode, parseHttpPort, parseHttpToken } from "./args.js";
 import { Hub } from "./hub.js";
 import { startHttpServer, type HttpServerHandle } from "./http.js";
 import { log } from "./log.js";
@@ -28,7 +28,11 @@ Usage:
   webmcp-browser                     MCP server mode over stdio (default)
   webmcp-browser --http[=port]       MCP over stdio AND streamable HTTP on
                                      http://127.0.0.1:<port>/mcp (default port
-                                     8930; also --http --port <port>)
+                                     8930; also --http --port <port>). Auth is
+                                     always required: Authorization: Bearer
+                                     <token> or ?token=<token>
+  webmcp-browser --http-token <t>    Use this HTTP auth token instead of a
+                                     generated one
   webmcp-browser --native-host       Relay mode: native messaging <-> hub TCP
   webmcp-browser --flow <flow.json>  Run a flow file (retries, assertions, HTML report)
   webmcp-browser --print-mcp-config  Print an MCP client config snippet (JSON)
@@ -41,8 +45,11 @@ Flow mode takes the same options as the npm script: npm run flow --
 flows/google-search.json --var query=capybara.
 
 Environment:
-  WEBMCP_HUB_FILE  Override the hub discovery file location
-                   (default: <os.tmpdir()>/webmcp-tools-hub.json)
+  WEBMCP_HUB_FILE    Override the hub discovery file location
+                     (default: <os.tmpdir()>/webmcp-tools-hub.json)
+  WEBMCP_HTTP_TOKEN  HTTP transport auth token (same as --http-token)
+  WEBMCP_HTTP_FILE   Override the http auth discovery file location
+                     (default: <os.tmpdir()>/webmcp-tools-http.json)
 `;
 
 function distDir(): string {
@@ -74,7 +81,10 @@ async function runMcpMode(httpPort: number | undefined): Promise<void> {
   // stdio MCP server keeps running.
   let http: HttpServerHandle | null = null;
   if (httpPort !== undefined) {
-    http = await startHttpServer(hub, { port: httpPort });
+    http = await startHttpServer(hub, {
+      port: httpPort,
+      token: parseHttpToken(process.argv.slice(2)) ?? process.env.WEBMCP_HTTP_TOKEN,
+    });
   }
 
   let shuttingDown = false;
