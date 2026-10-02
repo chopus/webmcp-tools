@@ -22,9 +22,10 @@ contract, read [`PROTOCOL.md`](PROTOCOL.md).
 - [Installation](#installation)
 - [Configuring an MCP client](#configuring-an-mcp-client)
 - [HTTP transport](#http-transport)
-- [Tool catalog (28 tools)](#tool-catalog-28-tools)
+- [Tool catalog (38 tools)](#tool-catalog-38-tools)
 - [Multiple browsers (instanceId)](#multiple-browsers-instanceid)
 - [The two input modes (DOM vs trusted)](#the-two-input-modes-dom-vs-trusted)
+- [Background tabs and window visibility](#background-tabs-and-window-visibility)
 - [WebMCP: page-exposed tools](#webmcp-page-exposed-tools)
 - [Demos](#demos)
 - [Examples](#examples)
@@ -192,7 +193,7 @@ curl -i http://127.0.0.1:8930/mcp \
 > `ssh -L 8930:127.0.0.1:8930`), never by binding a public interface or
 > port-forwarding it blindly.
 
-## Tool catalog (28 tools)
+## Tool catalog (38 tools)
 
 All parameters are optional unless marked **required**. A tool that accepts
 `tabId` targets the active tab of the last-focused window when you omit the
@@ -301,6 +302,50 @@ Each interaction tool works in one of two modes.
 The `fullPage` screenshot and the network capture use the same debugger
 attach. You may see the infobar for these operations too. This is expected
 and safe.
+
+## Background tabs and window visibility
+
+The tools work on background tabs, with two exceptions that depend on
+rendering. The rules below were verified live on Chrome 153 (2026-09-27).
+
+**What works in any background tab:** navigation, `wait_for`, `snapshot`,
+`get_page_text`, `get_links`, DOM-mode interaction (`click`, `type_text`,
+`press_key`, `hover`, `scroll`, `select_option`, `drag`), `evaluate`,
+console and network capture, `get_cookies`, `upload_file`, dialog
+handling, and WebMCP discovery and calls. Content scripts and passive CDP
+do not need a visible tab. Only the tab's renderer must be alive.
+
+**Trusted input needs a rendered window.** If the Chrome window is covered
+by a fullscreen app or is minimized, `trusted: true` actions report
+success but no input reaches the page — zero DOM events, no error raised.
+(The OS suspends the window's compositor; `focused: true` on the window is
+not proof of rendering.) With the window visible, trusted input works even
+on a background tab while the user keeps working in their own active tab.
+This is the same reason Playwright brings pages to the front before
+acting.
+
+**Screenshots need the active tab.** A viewport capture on a background
+tab fails with a named error ("the tab must be visible"). A `fullPage:
+true` capture on a background tab hangs to a bare timeout even when the
+window is visible — the target tab must be the one painting the window.
+To verify a background tab without disturbing the user, read `snapshot`
+(it includes rects, roles, and values), `get_page_text`,
+`get_console_logs`, or `get_network_requests` instead.
+
+### Working alongside the user
+
+- Always pass an explicit `tabId`. Without it, tools target the **active**
+  tab — the one the user is watching.
+- Never call `activate_tab` while the user works (it also focuses the
+  window). Avoid `unfreeze: true`, `new_window`, and `resize_window` for
+  the same reason.
+- Chrome's Memory Saver freezes background tabs after minutes of idle. A
+  frozen tab fails fast with `ETAB_FROZEN`. Reopening the tab disturbs the
+  user less than `unfreeze: true`, which activates the tab and moves
+  focus.
+- Background tabs do not get audible autoplay (it requires user
+  activation, which synthetic clicks do not grant), so agent tabs stay
+  silent in practice.
 
 ## WebMCP: page-exposed tools
 
