@@ -3,7 +3,9 @@
 All notable changes to this project are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.3.1] - 2026-10-02
+
+Error-reporting ergonomics from the 2026-09-20 Chrome-extension debugging session — capability was fine, round trips were lost to unnamed errors — plus a macOS native-host launcher fix.
 
 ### Added
 
@@ -17,6 +19,11 @@ All notable changes to this project are documented here. Format based on
 - `evaluate` timeouts now carry a diagnosis: tab frozen vs. tab inactive vs. the script itself still running (infinite loop / never-settling promise).
 - Debugger attach failures are classified and bounded (5 s): a DevTools conflict — including a stalled attach that previously surfaced as a generic 10 s timeout — fails fast with `EDEBUGGER` naming DevTools as the cause.
 - Server-side hub timeout for `evaluate` is raised to at least 45 s whenever `unfreeze: true` is set (a thaw + reload alone can take ~25 s).
+
+### Fixed
+
+- Native host launcher (`server/bin/webmcp-host.sh`) resolves node from `~/.local/bin`, `/opt/homebrew/bin`, and `/usr/local/bin` when Chrome's minimal PATH lacks it (macOS user-local installs exited 127 → "Native host has exited"), and fails with a clear message when node is nowhere; the launcher is now committed executable (mode 755).
+- SKILL.md's macOS example path no longer hardcodes a personal username.
 
 ## [0.3.0] - 2026-09-17
 
