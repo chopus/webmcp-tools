@@ -80,6 +80,28 @@ node $W close_tab '{"tabId":<id from new_tab>}'
 `wait_for` polls ~250 ms for `text`, `selector` (optionally with `state`:
 `visible|hidden|enabled|disabled|editable`), or `networkIdle` (+`idleMs`).
 
+## Working alongside the user (background tabs)
+
+Verified live (Chrome 153/154): the user keeps watching their own tab — even
+fullscreen video — while the agent works in background tabs.
+
+- Open agent tabs with `new_tab {"active": false}` and pass that `tabId` on
+  **every** call — the default target is the user's active tab.
+- Background tabs support everything except screenshots: DOM-mode input,
+  `evaluate`, `snapshot`/`get_page_text`, console + network capture, cookies,
+  uploads, WebMCP. Verify results with `snapshot`/`get_page_text`, never
+  `screenshot` (viewport AND fullPage need the target tab active — calling it
+  steals the user's focus or fails).
+- `trusted: true` needs the tab's Chrome window actually rendered: fine while
+  the user's fullscreen video plays *inside* Chrome; the input silently drops
+  (`clicked:true`, zero DOM events) when the window is covered by another app
+  or minimized. For trusted-input sessions, put the agent tab in a second,
+  visible Chrome window.
+- Never steal focus while the user works: no `activate_tab`, `unfreeze:true`,
+  `new_window`, `resize_window`.
+- A frozen background tab (`ETAB_FROZEN`, Memory Saver suspends idle ones
+  after minutes) is better re-opened than thawed while the user watches.
+
 ## Input modes
 
 Default is DOM mode: synthetic events, no debugger banner, React-friendly.
