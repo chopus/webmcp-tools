@@ -192,10 +192,10 @@ otherwise surface as a bare timeout) is bounded to 5s and reported the same way.
 
 | tool | params | result |
 |---|---|---|
-| `watch_console` | `{ tabId? }` | `{ watched: true, tabId, note }` — explicitly attaches console capture (content script + console hook) to a tab the agent has not driven; capture starts at this call, earlier logs are not recoverable |
+| `watch_console` | `{ tabId?, cdp?=false }` | `{ watched: true, tabId, note }` — explicitly attaches console capture. Default: MAIN-world console hook (frame 0, capture starts at this call). `cdp:true`: debugger-backed `Runtime`/`Log` capture — page-invisible, every execution context, uncaught exceptions and browser-level messages (some recent `Log` entries replay on attach); holds the debugger until `stop_network_capture`, so DevTools cannot attach meanwhile (→ `EDEBUGGER` if it already has) |
 | `get_console_logs` | `{ tabId?, levels?=["error","warn","log","info","debug"], lastN?=200 }` | `{ logs: [{ ts, tabId, level, text }] }` — ring buffer 1000/tab in the SW, cleared on navigation |
 | `get_network_requests` | `{ tabId?, urlContains?, lastN?=50 }` | `{ requests: [{ ts, method, url, status, type }] }` — attaches `chrome.debugger`, `Network.enable`, ring buffer 500/tab |
-| `stop_network_capture` | `{ tabId? }` | `{ stopped: true }` — detaches debugger for that tab (if attached only for capture) |
+| `stop_network_capture` | `{ tabId? }` | `{ stopped: true, consoleCaptureStopped? }` — releases every capture session holding the debugger for that tab (network capture; `watch_console cdp:true` console capture) and detaches |
 | `get_cookies` | `{ tabId?, url? }` | `{ cookies: [{ name, value, domain, path, httpOnly, secure, sameSite, session, expires? }] }` — via a momentary debugger attach (`Network.getCookies`); includes HttpOnly cookies (session credentials — treat values as secrets) |
 
 ### 7. WebMCP

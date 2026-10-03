@@ -27,12 +27,19 @@
     buffers.delete(tabId);
   }
 
-  // Fed by the content script (single entries or small batches).
+  // Fed by the content script (single entries or small batches). While a CDP
+  // console capture (NS.cdp.ensureConsoleCapture) is active on the tab it
+  // feeds the same buffer via Runtime.consoleAPICalled — the hook feed is
+  // suppressed then so lines are not recorded twice.
   chrome.runtime.onMessage.addListener((msg, sender) => {
     try {
       if (!msg || typeof msg !== 'object') return;
       const tabId = sender && sender.tab && sender.tab.id;
       if (typeof tabId !== 'number') return;
+      if ((msg.type === 'console' || msg.type === 'console_batch') &&
+          NS.cdp && NS.cdp.consoleWatchActive && NS.cdp.consoleWatchActive(tabId)) {
+        return;
+      }
       if (msg.type === 'console') {
         push(tabId, {
           ts: Date.now(),
@@ -78,11 +85,15 @@
    * noise), so make sure it is running on this tab before answering.
    */
   async function getLogs(tab, params) {
-    try {
-      if (NS.contentBridge && typeof NS.contentBridge.ensureInjected === 'function') {
-        await NS.contentBridge.ensureInjected(tab.id);
-      }
-    } catch (e) { /* tab may not be scriptable (e.g. chrome:// pages) */ }
+    const cdpWatch = !!(NS.cdp && NS.cdp.consoleWatchActive && NS.cdp.consoleWatchActive(tab.id));
+    if (!cdpWatch) {
+      // CDP capture needs no page-side hook; only the hook path injects.
+      try {
+        if (NS.contentBridge && typeof NS.contentBridge.ensureInjected === 'function') {
+          await NS.contentBridge.ensureInjected(tab.id);
+        }
+      } catch (e) { /* tab may not be scriptable (e.g. chrome:// pages) */ }
+    }
     const levels = U.optStrArray(params, 'levels', LEVELS);
     const allowed = new Set(levels.length ? levels : LEVELS);
     const lastN = Math.max(1, U.optInt(params, 'lastN', 200));
@@ -97,6 +108,7 @@
 
   NS.consoleBuffer = {
     getLogs,
-    clear
+    clear,
+    record: push // CDP feed (lib/cdp.js recordConsoleEvent)
   };
 })(self);

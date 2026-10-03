@@ -471,10 +471,23 @@ const TOOL_DEFS: ToolDef[] = [
   {
     name: "watch_console",
     description:
-      "Attach console capture to a tab explicitly (content script + console hook). Use it to watch " +
-      "a tab the agent never drove (e.g. one the user already had open); capture starts at this " +
-      "call — earlier logs are not recoverable. get_console_logs attaches on first read as well.",
-    shape: { ...tabIdShape },
+      "Attach console capture to a tab explicitly (e.g. one the user already had open). " +
+      "Default: MAIN-world console hook via the content script (capture starts at this call). " +
+      "cdp:true: debugger-backed capture — page-invisible, all frames/workers, uncaught " +
+      "exceptions and browser-level messages included (some recent entries replayed on attach); " +
+      "holds the debugger until stop_network_capture (DevTools cannot attach meanwhile). " +
+      "get_console_logs attaches on first read as well.",
+    shape: {
+      ...tabIdShape,
+      cdp: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe(
+          "use CDP Runtime/Log capture instead of the page-visible console hook " +
+            "(all frames, catches uncaught exceptions; holds the debugger until stop_network_capture)",
+        ),
+    },
     timeoutMs: 15000,
   },
   {
@@ -502,7 +515,9 @@ const TOOL_DEFS: ToolDef[] = [
   },
   {
     name: "stop_network_capture",
-    description: "Stop network capture and detach the debugger for a tab.",
+    description:
+      "Stop capture sessions holding the debugger for a tab (network capture and a " +
+      "watch_console cdp:true console capture) and detach the debugger.",
     shape: { ...tabIdShape },
     timeoutMs: 10000,
   },

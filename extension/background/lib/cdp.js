@@ -17,8 +17,8 @@
   const NS = (global.WMCP = global.WMCP || {});
   const U = NS.util;
 
-  // tabId -> { capture: boolean, netEnabled: boolean, dialogWatch: boolean }
-  // (only for OUR attaches; capture/dialogWatch hold the attachment open)
+  // tabId -> { capture, netEnabled, dialogWatch, consoleWatch, consoleEnabled }
+  // (only for OUR attaches; capture/dialogWatch/consoleWatch hold it open)
   const attached = new Map();
 
   // tabId -> { pending: Map<requestId, {ts, method, url}>, entries: [] }
@@ -111,7 +111,7 @@
     try {
       return await fn(command, state);
     } finally {
-      if (!state.capture && !state.dialogWatch) {
+      if (!state.capture && !state.dialogWatch && !state.consoleWatch) {
         attached.delete(tabId);
         await detach(tabId);
       }
@@ -318,12 +318,124 @@
     });
   }
 
+  // ---- console capture (CDP Runtime/Log — page-invisible, all frames) ------
+  //
+  // An alternative feed for console-buffer.js: Runtime.consoleAPICalled for
+  // page console.* calls (every execution context, not just frame 0),
+  // Runtime.exceptionThrown for uncaught errors, Log.entryAdded for
+  // browser-level messages (network errors, CSP violations — Log replays its
+  // recent buffer on enable, so some past entries are recoverable). Unlike
+  // the MAIN-world console hook it is invisible to the page and needs no
+  // injection, but it holds a debugger attachment (state.consoleWatch) until
+  // stop_network_capture releases it.
+
+  function fmtRemoteObject(ro) {
+    if (!ro) return '';
+    if (ro.value !== undefined) return String(ro.value);
+    return String(ro.description || ro.type || '');
+  }
+
+  function recordConsoleEvent(tabId, method, params) {
+    const buf = NS.consoleBuffer;
+    if (!buf || typeof buf.record !== 'function') return;
+    try {
+      if (method === 'Runtime.consoleAPICalled') {
+        const levelMap = { warning: 'warn', verbose: 'debug' };
+        const level = levelMap[params.type] || params.type || 'log';
+        const text = (params.args || []).map(fmtRemoteObject).join(' ').slice(0, 2000);
+        buf.record(tabId, { ts: Date.now(), level, text });
+      } else if (method === 'Runtime.exceptionThrown') {
+        const d = params.exceptionDetails || {};
+        const text = String(
+          (d.exception && (d.exception.description || d.exception.value)) || d.text || 'exception'
+        ).split('\n').slice(0, 6).join('\n').slice(0, 1200);
+        buf.record(tabId, { ts: Date.now(), level: 'error', text });
+      } else if (method === 'Log.entryAdded') {
+        const e = params.entry || {};
+        if (e.source === 'console') return; // consoleAPICalled already covered it
+        const level = e.level === 'error' ? 'error' : (e.level === 'warning' ? 'warn' : 'info');
+        const where = e.url ? ` (${e.url}${e.lineNumber >= 0 ? ':' + e.lineNumber : ''})` : '';
+        buf.record(tabId, {
+          ts: Date.now(), level, text: String(e.text || '').slice(0, 500) + where
+        });
+      }
+    } catch (e) {
+      /* capture must never throw */
+    }
+  }
+
+  /** True while a CDP console capture holds the debugger for this tab. */
+  function consoleWatchActive(tabId) {
+    const state = attached.get(tabId);
+    return !!(state && state.consoleWatch);
+  }
+
+  /** Attach (or reuse) the debugger and enable Runtime+Log console capture. */
+  async function ensureConsoleCapture(tabId) {
+    let state = attached.get(tabId);
+    if (state && state.consoleWatch) return { watching: true, mode: 'cdp' };
+    if (!state) {
+      await withDebugger(tabId, async (command, st) => {
+        await command('Runtime.enable', {});
+        await command('Log.enable', {});
+        st.consoleEnabled = true;
+        st.consoleWatch = true; // holds the attachment open
+      });
+      return { watching: true, mode: 'cdp' };
+    }
+    // A network capture or dialog watch already owns the attachment.
+    if (!state.consoleEnabled) {
+      try {
+        await chrome.debugger.sendCommand({ tabId }, 'Runtime.enable', {});
+        await chrome.debugger.sendCommand({ tabId }, 'Log.enable', {});
+        state.consoleEnabled = true;
+      } catch (e) {
+        void chrome.runtime.lastError;
+        throw U.err(
+          `console capture could not enable Runtime/Log for tab ${tabId} (${(e && e.message) || e})`,
+          'EDEBUGGER'
+        );
+      }
+    }
+    state.consoleWatch = true;
+    return { watching: true, mode: 'cdp' };
+  }
+
+  /** Release the console capture; detach unless capture/dialogWatch hold on. */
+  async function stopConsoleCapture(tabId) {
+    const state = attached.get(tabId);
+    if (state) {
+      state.consoleWatch = false;
+      if (state.consoleEnabled) {
+        try {
+          await chrome.debugger.sendCommand({ tabId }, 'Runtime.disable', {});
+          await chrome.debugger.sendCommand({ tabId }, 'Log.disable', {});
+        } catch (e) {
+          void chrome.runtime.lastError;
+        }
+        state.consoleEnabled = false;
+      }
+      if (!state.capture && !state.dialogWatch) {
+        attached.delete(tabId);
+        await detach(tabId);
+      }
+    }
+    return { stopped: true };
+  }
+
   // ---- network capture -----------------------------------------------------
 
   chrome.debugger.onEvent.addListener((source, method, params) => {
     try {
       if (!source || typeof source.tabId !== 'number') return;
-      const cap = captures.get(source.tabId);
+      const tabId = source.tabId;
+      if (method === 'Runtime.consoleAPICalled' || method === 'Runtime.exceptionThrown' ||
+          method === 'Log.entryAdded') {
+        const state = attached.get(tabId);
+        if (state && state.consoleWatch) recordConsoleEvent(tabId, method, params);
+        return;
+      }
+      const cap = captures.get(tabId);
       if (!cap) return;
       if (method === 'Network.requestWillBeSent') {
         cap.pending.set(params.requestId, {
@@ -412,7 +524,7 @@
         }
         state.netEnabled = false;
       }
-      if (!state.dialogWatch) { // a dialog watch may still hold the attach
+      if (!state.dialogWatch && !state.consoleWatch) { // other sessions may hold the attach
         attached.delete(tabId);
         await detach(tabId);
       }
@@ -456,6 +568,9 @@
     stopCapture,
     getRequests,
     inFlightCount,
+    ensureConsoleCapture,
+    stopConsoleCapture,
+    consoleWatchActive,
     modBits
   };
 })(self);

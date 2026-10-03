@@ -260,13 +260,25 @@
     // ---- §6 Console / network -----------------------------------------------
 
     /**
-     * Explicitly attach console capture to a tab (content script + MAIN-world
-     * console hook). get_console_logs attaches on first read too, but only
-     * from that moment on — this tool exists so the agent can opt a tab it
-     * never drove (e.g. one the user already had open) into capture before
-     * the interesting logs happen.
+     * Explicitly attach console capture to a tab. Default mode: content
+     * script + MAIN-world console hook (page-visible wrapper, frame 0).
+     * cdp:true: debugger-backed Runtime/Log capture — page-invisible, every
+     * execution context, catches uncaught exceptions and browser-level
+     * messages (some recent Log entries are replayed on attach); holds the
+     * debugger until stop_network_capture, so DevTools cannot attach meanwhile.
      */
     watch_console: (params) => withTab(params, async (tab) => {
+      if (U.optBool(params, 'cdp', false)) {
+        const res = await NS.cdp.ensureConsoleCapture(tab.id);
+        return {
+          watched: true,
+          tabId: tab.id,
+          mode: 'cdp',
+          note: 'CDP console capture attached (all frames, page-invisible, uncaught ' +
+                'exceptions included); the debugger stays attached until ' +
+                'stop_network_capture — DevTools cannot open on this tab meanwhile'
+        };
+      }
       await NS.contentBridge.ensureInjected(tab.id);
       return {
         watched: true,
@@ -288,7 +300,13 @@
 
     stop_network_capture: async (params) => {
       const tab = await NS.tabs.resolveTab(params.tabId);
-      return NS.cdp.stopCapture(tab.id);
+      // Releases every capture session that holds the debugger for this tab
+      // (network capture, and a watch_console cdp:true console capture).
+      const hadConsole = NS.cdp.consoleWatchActive(tab.id);
+      if (hadConsole) await NS.cdp.stopConsoleCapture(tab.id);
+      const res = await NS.cdp.stopCapture(tab.id);
+      if (hadConsole) res.consoleCaptureStopped = true;
+      return res;
     },
 
     get_cookies: async (params) => {
