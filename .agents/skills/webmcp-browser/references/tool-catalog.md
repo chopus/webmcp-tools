@@ -67,7 +67,7 @@ inside the repo: `docs/PROTOCOL.md` and `docs/USAGE.md`.
 
 | Tool | Params | Result |
 |---|---|---|
-| `watch_console` | `cdp` (default `false`) | `{ watched: true, tabId, note }` — attaches console capture. Default: MAIN-world hook (frame 0, starts at this call). `cdp:true`: debugger Runtime/Log capture — page-invisible, all frames, uncaught exceptions + browser messages, some recent entries replay; debugger stays attached until `stop_network_capture` (no DevTools on that tab meanwhile) |
+| `watch_console` | `cdp` (default `false`) | `{ watched: true, tabId, note }` — attaches console capture. Default: MAIN-world hook (frame 0, starts at this call; page-detectable via `console.*` toString). `cdp:true`: debugger Runtime/Log capture — page-invisible, all frames + workers, uncaught exceptions + browser messages, some recent entries replay; debugger stays attached until `stop_network_capture` (no DevTools on that tab meanwhile) |
 | `get_console_logs` | `levels` (default all), `lastN` (default `200`) | `{ logs: [{ ts, tabId, level, text }] }` — ring buffer 1000/tab, cleared on navigation; also attaches capture on first read (`watch_console` does it upfront) |
 | `get_network_requests` | `urlContains`, `lastN` (default `50`) | `{ requests: [{ ts, method, url, status, type }] }` — ring buffer 500/tab; capture starts with the first call |
 | `stop_network_capture` | — | `{ stopped: true, consoleCaptureStopped? }` — releases all capture sessions (network + CDP console) and detaches the debugger |

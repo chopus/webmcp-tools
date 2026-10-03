@@ -89,6 +89,30 @@ briefly, so Chrome shows the "webmcp-tools started debugging this browser"
 infobar; that is expected. `click` also accepts viewport `x`/`y` (trusted CDP
 input) for canvas apps and games.
 
+## Stealth & detectability (live-verified 2026-09-27 + 2026-10-04)
+
+The browser is the user's real one — real fingerprint, no automation flags,
+no driver artifacts. Verified against sannysoft / CreepJS / Fingerprint.com
+(clean), and with the debugger attached: CreepJS fingerprint byte-identical,
+iphey clean on single visits. What remains detectable:
+
+- **DOM-mode input is the one JS tell**: events carry `isTrusted:false`. A
+  site checking event trust sees it — switch to `trusted:true` (full
+  `isTrusted:true` chain) when a page ignores synthetic input.
+- **Console hook (default) wraps `console.*`** — anti-devtools scripts can
+  spot it via `console.log.toString()`. `watch_console {cdp:true}` is
+  page-invisible and covers every frame and worker (it holds the debugger
+  until `stop_network_capture`, so no DevTools on that tab meanwhile).
+  Rule: hook by default; `cdp:true` for adversarial pages or worker-heavy
+  debugging.
+- **Never inject the WebMCP polyfill** (`injectPolyfill:true`) on an
+  adversarial origin — it adds `document.modelContext` to the page.
+- **Behavioral rhythm is the real detector**: rapid visit→reload patterns
+  drew behavioral flags (iphey), independent of any technical tell. Pace
+  navigations like a human; automated visits accumulate on the user's real
+  identity, so stay conservative.
+- Every debugger attach shows the user an infobar — visible by design.
+
 ## WebMCP — try it before clicking
 
 Pages can expose typed tools through `document.modelContext` (imperative) or
