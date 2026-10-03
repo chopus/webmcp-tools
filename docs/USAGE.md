@@ -340,13 +340,14 @@ on a background tab while the user keeps working in their own active tab.
 This is the same reason Playwright brings pages to the front before
 acting.
 
-**Screenshots need the active tab.** A viewport capture on a background
-tab fails with a named error ("the tab must be visible"). A `fullPage:
-true` capture on a background tab hangs to a bare timeout even when the
-window is visible — the target tab must be the one painting the window.
-To verify a background tab without disturbing the user, read `snapshot`
-(it includes rects, roles, and values), `get_page_text`,
-`get_console_logs`, or `get_network_requests` instead.
+**Screenshots need the active tab.** Both modes fail fast with a named,
+actionable error when the target tab is in the background (re-verified on
+Chrome 154): viewport capture would otherwise silently return pixels of
+whatever tab the user is viewing (`captureVisibleTab` addresses the window,
+not the tab), and `fullPage` gets "Unable to capture screenshot" from CDP
+since Chrome only paints the active tab. To verify a background tab without
+disturbing the user, read `snapshot` (it includes rects, roles, and values),
+`get_page_text`, `get_console_logs`, or `get_network_requests` instead.
 
 ### Working alongside the user
 

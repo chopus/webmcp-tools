@@ -68,7 +68,17 @@
 
   /**
    * screenshot(tab, { format?, quality?, fullPage?, maxWidth? })
+   *
+   * Both modes can only capture the ACTIVE tab of a rendered window:
+   * `captureVisibleTab` addresses a window (not a tab), and CDP capture
+   * refuses inactive tabs ("Unable to capture screenshot"). A background-tab
+   * request must fail fast with a named cause — otherwise viewport mode
+   * would silently return pixels of whatever the user is viewing.
    */
+  const BACKGROUND_HINT =
+    'verify background tabs with snapshot / get_page_text, or activate the ' +
+    'tab first (note: activation moves the user\'s focus)';
+
   async function screenshot(tab, params) {
     const format = params.format === 'jpeg' ? 'jpeg' : 'png';
     const quality = Math.min(100, Math.max(1, U.optInt(params, 'quality', 80)));
@@ -76,10 +86,33 @@
     const fullPage = U.optBool(params, 'fullPage', false);
 
     if (fullPage) {
-      const shot = await NS.cdp.captureFullPage(tab.id, { format, quality });
+      let shot;
+      try {
+        shot = await NS.cdp.captureFullPage(tab.id, { format, quality });
+      } catch (e) {
+        if (e && e.code === 'EDEBUGGER' &&
+            /unable to capture screenshot/i.test(e.message) && !tab.active) {
+          throw U.err(
+            `fullPage capture failed for tab ${tab.id}: it is not the active ` +
+            'tab of its window, and Chrome only captures the active tab — ' + BACKGROUND_HINT,
+            'EEXECUTION'
+          );
+        }
+        throw e;
+      }
       return postProcess({ base64: shot.dataBase64 }, format, quality, maxWidth);
     }
 
+    if (!tab.active) {
+      // captureVisibleTab addresses the WINDOW: with a background target it
+      // would silently capture the tab the user is looking at instead.
+      throw U.err(
+        `viewport capture requires the target tab to be the active tab of ` +
+        `its window; tab ${tab.id} is in the background and captureVisibleTab ` +
+        'would return whatever the user is viewing — ' + BACKGROUND_HINT,
+        'EEXECUTION'
+      );
+    }
     const options = { format };
     if (format === 'jpeg') options.quality = quality;
     let dataUrl;
@@ -89,7 +122,7 @@
       void chrome.runtime.lastError;
       throw U.err(
         `captureVisibleTab failed for window ${tab.windowId} (` +
-        `${(e && e.message) || e}); the tab must be visible`,
+        `${(e && e.message) || e}); the window must be visible (not minimized/covered)`,
         'EEXECUTION'
       );
     }

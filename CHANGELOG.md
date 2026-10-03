@@ -5,6 +5,10 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+
+- Background-tab screenshots now fail fast with named, actionable errors instead of misbehaving (re-verified on Chrome 154): a viewport capture on a background tab used to **silently return pixels of whatever tab the user was viewing** (`captureVisibleTab` addresses the window, not the tab) — it now refuses unless the target is the active tab; a `fullPage` capture on a background tab used to surface a misleading `EDEBUGGER`/bare timeout — the CDP "Unable to capture screenshot" rejection is now wrapped with the real cause (Chrome only captures the active tab) and the verification alternatives.
+
 ### Added
 
 - `watch_console` `cdp: true`: debugger-backed console capture (`Runtime.consoleAPICalled`, `Runtime.exceptionThrown`, `Log.entryAdded`) as an alternative to the MAIN-world console hook. Page-invisible (no console wrapping the page could detect), covers every execution context (all frames/workers, not just frame 0), includes uncaught exceptions and browser-level messages (network errors, CSP violations — some recent `Log` entries replay on attach). Holds the debugger until `stop_network_capture` (DevTools cannot attach meanwhile); the hook feed is suppressed while CDP capture is active so lines are never double-recorded.
