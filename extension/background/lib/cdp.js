@@ -36,33 +36,12 @@
   }
 
   /**
-   * Fail fast (ETAB_FROZEN) on tabs whose renderer cannot answer CDP.
-   * Chrome's Memory Saver freezes background tabs (renderer suspended) and
-   * discards unused ones (renderer unloaded); Runtime.evaluate on such a tab
-   * would silently never return, surfacing as a bare tool timeout.
+   * Frozen/discarded fast-fail before any debugger work. The check itself
+   * lives in tabs.js (NS.tabs.assertRunnable) so the debugger path and the
+   * content-script path share one message and never drift.
    */
   async function assertAttachable(tabId) {
-    let tab = null;
-    try {
-      tab = await chrome.tabs.get(tabId);
-    } catch (e) {
-      return; // a missing tab errors in the caller with its own code
-    }
-    if (tab && tab.frozen) {
-      throw U.err(
-        `tab ${tabId} is frozen by Chrome (Memory Saver suspends background tabs) — ` +
-        'its renderer will not run scripts or answer CDP until activated. ' +
-        'Call activate_tab first, or pass unfreeze:true on evaluate',
-        'ETAB_FROZEN'
-      );
-    }
-    if (tab && tab.discarded) {
-      throw U.err(
-        `tab ${tabId} was discarded by Chrome (Memory Saver unloaded it) — ` +
-        'navigate or reload it before driving it',
-        'ETAB_FROZEN'
-      );
-    }
+    await NS.tabs.assertRunnable(tabId);
   }
 
   const ATTACH_TIMEOUT_MS = 5000;

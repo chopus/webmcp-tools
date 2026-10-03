@@ -93,7 +93,7 @@ missing.
 ```ts
 { tabId: number, windowId: number, index: number, title: string, url: string,
   active: boolean, pinned: boolean, status: "loading"|"complete",
-  favIconUrl?: string, audible?: boolean }
+  favIconUrl?: string, audible?: boolean, frozen?: true, discarded?: true }
 ```
 
 ### 1. Browser / tabs
@@ -172,11 +172,16 @@ the content script; attach → act → detach. Non-trusted: content-script synth
 | `evaluate` | `{ tabId?, function: "(args) => expression-or-promise", args?={}, world?="MAIN"\|"ISOLATED", awaitPromise?=true, unfreeze?=false, timeoutMs?=10000 }` | `{ result: null\|value, exception?: string }` — JSON-serializable returns only; non-serializable → `{ result: null, exception: "non-serializable result" }` |
 
 Chrome's Memory Saver freezes background tabs and discards unused ones; a frozen
-renderer never runs scripts, so debugger-backed tools fail fast with `ETAB_FROZEN`
-instead of hanging. `evaluate` accepts `unfreeze: true` to activate such a tab
-(its window takes focus), wait for it to thaw/reload, then evaluate. On timeout
-the error names the likely cause: tab frozen/discarded vs. the script itself
-still running (infinite loop / never-settling promise).
+renderer never runs scripts, so both debugger-backed tools and content-script
+tools (`snapshot`, `get_page_text`, `wait_for` text/selector, DOM-mode
+interaction, `evaluate`) fail fast with `ETAB_FROZEN` instead of hanging — one
+shared check (the same message from either path). `navigate`, `reload`,
+`activate_tab`, and `close_tab` still work on such tabs. `list_tabs` reports
+`frozen: true` / `discarded: true` so suspended tabs can be avoided up front.
+`evaluate` accepts `unfreeze: true` to activate such a tab (its window takes
+focus), wait for it to thaw/reload, then evaluate. On timeout the error names
+the likely cause: tab frozen/discarded vs. the script itself still running
+(infinite loop / never-settling promise).
 
 Debugger-backed tools (`evaluate`, network capture, trusted input, full-page
 screenshots) cannot attach while DevTools is open on the target tab; that case

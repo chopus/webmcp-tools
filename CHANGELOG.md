@@ -3,11 +3,16 @@
 All notable changes to this project are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.3.2] - 2026-10-04
 
 ### Added
 
 - HTTP transport authentication (`--http`): every request must present `Authorization: Bearer <token>` or `?token=<token>`; unauthenticated requests get a 401 whose message names the fix. The token is the value of `--http-token` / `WEBMCP_HTTP_TOKEN`, or generated at startup and written to a 0600 discovery file (`WEBMCP_HTTP_FILE`, default `<tmpdir>/webmcp-tools-http.json`, removed on shutdown — same pattern as the hub discovery file). Local same-user helpers (the skill CLI) read it automatically, so zero-setup behavior is unchanged; other local users and port scans can no longer drive the browser. Previously the endpoint accepted unauthenticated requests from any local process.
+- `list_tabs` reports `frozen: true` / `discarded: true` for Memory-Saver-suspended tabs (Chrome >=132), so agents can avoid targeting them instead of discovering the state by error.
+
+### Changed
+
+- The `ETAB_FROZEN` fast-fail now covers the content-script path, not just debugger-backed tools: `snapshot`, `get_page_text`, `get_links`, `wait_for` (text/selector), DOM-mode interaction, and console-hook injection on a frozen/discarded tab fail immediately with the shared actionable message instead of a bare timeout. One shared check (`tabs.assertRunnable`) serves both paths, so the messages cannot drift. `navigate`, `reload`, `activate_tab`, and `close_tab` are unaffected — they still work on suspended tabs.
 
 ## [0.3.1] - 2026-10-02
 

@@ -17,7 +17,7 @@ inside the repo: `docs/PROTOCOL.md` and `docs/USAGE.md`.
 | Tool | Params | Result |
 |---|---|---|
 | `get_browser_info` | — | `{ chromeVersion, userAgent, platform, extensionVersion, instanceId, instances: [{ instanceId, … }] }` |
-| `list_tabs` | — | `{ tabs: Tab[] }` across all windows |
+| `list_tabs` | — | `{ tabs: Tab[] }` across all windows; `frozen`/`discarded: true` mark Memory-Saver-suspended tabs (avoid targeting them) |
 | `new_tab` | `url` (default `about:blank`), `active` (default `true`), `windowId` | `{ tab: Tab }` |
 | `activate_tab` | `tabId` **required** | `{ tab: Tab }` (also focuses its window) |
 | `close_tab` | `tabId` **required** | `{ closed: true }` |

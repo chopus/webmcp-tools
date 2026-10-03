@@ -116,10 +116,11 @@ Prefer these over UI simulation whenever the page offers them.
   (and a stalled debugger attach) fails fast with `EDEBUGGER` naming DevTools
   — close DevTools on the target tab and retry.
 - Chrome's Memory Saver freezes background tabs; a frozen renderer runs no
-  scripts, so debugger-backed tools targeting one fail fast with
-  `ETAB_FROZEN`. Activate the tab first (`activate_tab`), or pass
-  `unfreeze: true` to `evaluate` (it activates the tab — focus moves — then
-  waits for the thaw/reload).
+  scripts, so tools targeting one (`evaluate`, `snapshot`, `wait_for`,
+  DOM-mode clicks — any tab-content tool) fail fast with `ETAB_FROZEN`;
+  `list_tabs` shows `frozen`/`discarded`. Activate the tab first
+  (`activate_tab`), or pass `unfreeze: true` to `evaluate` (it activates the
+  tab — focus moves — then waits for the thaw/reload).
 
 ## Exact parameters
 

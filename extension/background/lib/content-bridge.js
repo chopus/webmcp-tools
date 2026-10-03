@@ -105,6 +105,7 @@
 
   /** Make sure the content script is alive in the tab's main frame. */
   async function ensureInjected(tabId) {
+    await NS.tabs.assertRunnable(tabId); // frozen renderer would never answer
     ensureConsoleHook(tabId);
     try {
       await ping(tabId);
@@ -144,6 +145,7 @@
    * marks the tab as agent-driven, which installs the console hook.
    */
   async function askTab(tabId, message) {
+    await NS.tabs.assertRunnable(tabId); // frozen renderer would never answer
     try {
       const res = await rawSend(tabId, message);
       ensureConsoleHook(tabId);
@@ -192,6 +194,7 @@
   /** askTab for a specific frame (injection fallback applies to frame 0). */
   async function askFrame(tabId, frameId, message) {
     if (frameId === 0) return askTab(tabId, message);
+    await NS.tabs.assertRunnable(tabId); // frozen renderer would never answer
     return unwrap(await rawSendFrame(tabId, frameId, message));
   }
 

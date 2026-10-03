@@ -22,7 +22,44 @@
     };
     if (t.favIconUrl) out.favIconUrl = t.favIconUrl;
     if (typeof t.audible === 'boolean') out.audible = t.audible;
+    // Memory-Saver states (Chrome >=132 reports `frozen`): present only when
+    // true so agents can spot suspended tabs before targeting them.
+    if (t.frozen) out.frozen = true;
+    if (t.discarded) out.discarded = true;
     return out;
+  }
+
+  /**
+   * Fail fast (ETAB_FROZEN) on tabs whose renderer cannot answer: Chrome's
+   * Memory Saver freezes background tabs (renderer suspended — no page
+   * scripts, no content script, no CDP) and discards unused ones (renderer
+   * unloaded). Both used to surface as bare tool timeouts. Shared by the
+   * debugger path (cdp.js withDebugger) and the content-script path
+   * (content-bridge.js). navigate/reload/activate/close still work — this
+   * check must never gate them.
+   */
+  async function assertRunnable(tabId) {
+    let tab = null;
+    try {
+      tab = await chrome.tabs.get(tabId);
+    } catch (e) {
+      return; // a missing tab errors in the caller with its own code
+    }
+    if (tab && tab.frozen) {
+      throw U.err(
+        `tab ${tabId} is frozen by Chrome (Memory Saver suspends background tabs) — ` +
+        'its renderer runs neither page scripts nor CDP until activated. ' +
+        'Call activate_tab first; evaluate also accepts unfreeze:true',
+        'ETAB_FROZEN'
+      );
+    }
+    if (tab && tab.discarded) {
+      throw U.err(
+        `tab ${tabId} was discarded by Chrome (Memory Saver unloaded it) — ` +
+        'navigate or reload it before driving it',
+        'ETAB_FROZEN'
+      );
+    }
   }
 
   async function getTab(tabId) {
@@ -157,6 +194,7 @@
     serializeTab,
     getTab,
     resolveTab,
+    assertRunnable,
     waitTabComplete,
     navigateAndWait,
     goDirection
