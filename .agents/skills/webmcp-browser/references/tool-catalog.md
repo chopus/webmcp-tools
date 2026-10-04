@@ -61,7 +61,7 @@ inside the repo: `docs/PROTOCOL.md` and `docs/USAGE.md`.
 
 | Tool | Params | Result |
 |---|---|---|
-| `evaluate` | `function` **required** (`"(args) => …"`, may return a promise), `args` (default `{}`), `world` (`"MAIN"` default \| `"ISOLATED"`), `awaitPromise` (default `true`), `unfreeze` (default `false`; the server-side timeout floor becomes 45000 ms when set), `timeoutMs` (default `10000`) | `{ result }` — JSON-serializable values only; non-serializable → `{ result: null, exception: "non-serializable result" }`. Runs via CDP; page CSP cannot block it; cannot run while DevTools is attached to the tab (→ `EDEBUGGER` naming DevTools). A frozen/discarded background tab fails fast with `ETAB_FROZEN` instead of hanging — pass `unfreeze: true` to activate it first (steals focus in its window). Timeouts carry a diagnosis: tab frozen vs. tab inactive vs. script still running. |
+| `evaluate` | `function` **required** (`"(args) => …"`, may return a promise), `args` (default `{}`), `world` (`"MAIN"` default \| `"ISOLATED"`), `awaitPromise` (default `true`), `unfreeze` (default `false`; timeout floor becomes 45000 ms when set — also accepted by click/type_text/press_key/drag/screenshot/get_cookies), `timeoutMs` (default `10000`) | `{ result }` — JSON-serializable values only; non-serializable → `{ result: null, exception: "non-serializable result" }`. Runs via CDP; page CSP cannot block it; cannot run while DevTools is attached to the tab (→ `EDEBUGGER` naming DevTools). A frozen/discarded background tab fails fast with `ETAB_FROZEN` instead of hanging — pass `unfreeze: true` to activate it first (steals focus in its window). Timeouts carry a diagnosis: tab frozen vs. tab inactive vs. script still running. |
 
 ## Console & network
 

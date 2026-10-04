@@ -190,10 +190,26 @@
     return { tabId, url: tab.url || '', title: tab.title || '' };
   }
 
+  /**
+   * resolveTab honoring an optional `unfreeze: true` param: when the target
+   * is frozen/discarded (Memory Saver), activate it and wait for the thaw
+   * first (NS.automation.unfreezeTab — activation steals focus in the tab's
+   * window; that documented cost is why this is opt-in per call).
+   */
+  async function resolveUnfreezable(params) {
+    let tab = await resolveTab(params ? params.tabId : undefined);
+    if (params && params.unfreeze === true && (tab.frozen || tab.discarded)) {
+      await NS.automation.unfreezeTab(tab.id);
+      tab = await getTab(tab.id);
+    }
+    return tab;
+  }
+
   NS.tabs = {
     serializeTab,
     getTab,
     resolveTab,
+    resolveUnfreezable,
     assertRunnable,
     waitTabComplete,
     navigateAndWait,

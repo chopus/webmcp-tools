@@ -3,7 +3,7 @@
 All notable changes to this project are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.3.3] - 2026-10-04
 
 ### Fixed
 
@@ -11,6 +11,8 @@ All notable changes to this project are documented here. Format based on
 
 ### Added
 
+- `unfreeze: true` generalized beyond `evaluate`: the router resolves every tool's target through one unfreeze-aware path, and the param is declared for the debugger-backed tools (`click`/`type_text`/`press_key`/`drag` with trusted input, `screenshot`, `get_cookies`). The 45 s server-side timeout floor applies to any tool called with it.
+- Windows native-host launcher (`webmcp-host.cmd`) resolves node from `%ProgramFiles%` fallbacks when Chrome's minimal PATH lacks it, mirroring `webmcp-host.sh`, and fails with a clear message instead of a silent 127.
 - `watch_console` `cdp: true`: debugger-backed console capture (`Runtime.consoleAPICalled`, `Runtime.exceptionThrown`, `Log.entryAdded`) as an alternative to the MAIN-world console hook. Page-invisible (no console wrapping the page could detect), covers every execution context (all frames/workers, not just frame 0), includes uncaught exceptions and browser-level messages (network errors, CSP violations — some recent `Log` entries replay on attach). Holds the debugger until `stop_network_capture` (DevTools cannot attach meanwhile); the hook feed is suppressed while CDP capture is active so lines are never double-recorded.
 - `stop_network_capture` now releases every capture session holding the debugger for a tab — network capture and a CDP console capture alike (`consoleCaptureStopped: true` in the result when one was active).
 

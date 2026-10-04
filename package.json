@@ -1,6 +1,6 @@
 {
   "name": "webmcp-tools-workspace",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "private": true,
   "description": "Monorepo: MCP server that drives the user's real Chrome session via a WebMCP-aware extension + native messaging bridge.",
   "scripts": {

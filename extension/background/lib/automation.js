@@ -375,11 +375,8 @@
     const world = params.world === 'ISOLATED' ? 'ISOLATED' : 'MAIN';
     const awaitPromise = U.optBool(params, 'awaitPromise', true);
     const timeoutMs = Math.max(100, U.optInt(params, 'timeoutMs', 10000));
-
-    if (U.optBool(params, 'unfreeze', false) && (tab.frozen || tab.discarded)) {
-      await unfreezeTab(tab.id);
-      tab = await NS.tabs.getTab(tab.id);
-    }
+    // unfreeze handling lives in tabs.resolveUnfreezable (router withTab):
+    // a frozen tab arrives here already thawed or fails ETAB_FROZEN in cdp.
 
     let argsJson;
     try {
@@ -441,6 +438,7 @@
     drag,
     uploadFile,
     evaluate,
+    unfreezeTab,
     locate
   };
 })(self);

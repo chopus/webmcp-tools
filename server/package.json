@@ -1,6 +1,6 @@
 {
   "name": "webmcp-browser",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "MCP server + native messaging host for webmcp-tools: drives the user's real Chrome session via a WebMCP-aware extension.",
   "type": "module",
   "license": "MIT",

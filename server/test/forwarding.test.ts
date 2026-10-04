@@ -175,7 +175,7 @@ describe("MCP forwarding to the hub", () => {
 
       // Valid calls go through to the hub.
       await client.callTool({ name: "click", arguments: { selector: "#btn", button: "right" } });
-      expect(calls.at(-1)?.params).toEqual({ selector: "#btn", button: "right", clickCount: 1, modifiers: [], trusted: false, timeoutMs: 5000 });
+      expect(calls.at(-1)?.params).toEqual({ selector: "#btn", button: "right", clickCount: 1, modifiers: [], trusted: false, unfreeze: false, timeoutMs: 5000 });
     });
   });
 

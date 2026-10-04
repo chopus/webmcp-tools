@@ -18,6 +18,18 @@ type Shape = Record<string, ZodTypeAny>;
 
 const tabIdShape: Shape = { tabId: z.number().int().optional() };
 
+/** Opt-in thaw of a Chrome-frozen target (see evaluate / debugger-backed tools). */
+const unfreezeShape: Shape = {
+  unfreeze: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe(
+      "activate the tab first if Chrome froze/discarded it (Memory Saver) — " +
+        "a frozen renderer never runs scripts or paints; activation steals focus in the tab's window",
+    ),
+};
+
 function timeoutShape(defaultMs: number): Shape {
   return { timeoutMs: z.number().int().optional().default(defaultMs) };
 }
@@ -310,6 +322,7 @@ const TOOL_DEFS: ToolDef[] = [
       quality: z.number().int().optional().default(80),
       fullPage: z.boolean().optional().default(false),
       maxWidth: z.number().int().optional().default(1600),
+      ...unfreezeShape,
     },
     timeoutMs: 30000,
     format: "screenshot",
@@ -331,6 +344,7 @@ const TOOL_DEFS: ToolDef[] = [
       clickCount: z.number().int().optional().default(1),
       modifiers: z.array(z.string()).optional().default([]),
       trusted: z.boolean().optional().default(false),
+      ...unfreezeShape,
       ...timeoutShape(5000),
     },
     timeoutMs: 5000,
@@ -364,6 +378,7 @@ const TOOL_DEFS: ToolDef[] = [
       submit: z.boolean().optional().default(false),
       confirm: z.boolean().optional(),
       trusted: z.boolean().optional().default(false),
+      ...unfreezeShape,
       ...timeoutShape(10000),
     },
     timeoutMs: 10000,
@@ -380,6 +395,7 @@ const TOOL_DEFS: ToolDef[] = [
       ...targetingShape(),
       confirm: z.boolean().optional(),
       trusted: z.boolean().optional().default(false),
+      ...unfreezeShape,
       ...timeoutShape(5000),
     },
     timeoutMs: 5000,
@@ -432,6 +448,7 @@ const TOOL_DEFS: ToolDef[] = [
       toRef: z.number().int().optional(),
       toSelector: z.string().optional(),
       trusted: z.boolean().optional().default(false),
+      ...unfreezeShape,
       ...timeoutShape(8000),
     },
     timeoutMs: 8000,
@@ -454,14 +471,7 @@ const TOOL_DEFS: ToolDef[] = [
       args: z.record(z.unknown()).optional().default({}),
       world: z.enum(["MAIN", "ISOLATED"]).optional().default("MAIN"),
       awaitPromise: z.boolean().optional().default(true),
-      unfreeze: z
-        .boolean()
-        .optional()
-        .default(false)
-        .describe(
-          "activate the tab first if Chrome froze/discarded it (Memory Saver) — " +
-            "a frozen renderer never runs scripts; activation steals focus in the tab's window",
-        ),
+      ...unfreezeShape,
       ...timeoutShape(10000),
     },
     timeoutMs: 10000,
@@ -530,6 +540,7 @@ const TOOL_DEFS: ToolDef[] = [
     shape: {
       ...tabIdShape,
       url: z.string().optional().describe("Read cookies for this URL instead of the tab's URL"),
+      ...unfreezeShape,
     },
     timeoutMs: 10000,
   },
@@ -711,9 +722,9 @@ export function createMcpServer(hub: HubApi): McpServer {
           def.validate?.(args);
           let timeoutMs = clampTimeout(args.timeoutMs, def.timeoutMs);
           // unfreeze can take ~25s on its own (activate a frozen tab + wait
-          // for its reload) before the script even runs — raise the hub cap
-          // so it is not aborted mid-thaw. The 120s ceiling still applies.
-          if (def.name === "evaluate" && args.unfreeze === true) {
+          // for its reload) before the tool even runs — raise the hub cap so
+          // it is not aborted mid-thaw. The 120s ceiling still applies.
+          if (args.unfreeze === true) {
             timeoutMs = Math.max(timeoutMs, 45000);
           }
           const { instanceId, ...params } = args;

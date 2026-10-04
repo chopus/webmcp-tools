@@ -99,7 +99,7 @@
     navigate: async (params) => {
       const url = U.reqStr(params, 'url');
       const timeoutMs = U.optInt(params, 'timeoutMs', 30000);
-      const tab = await NS.tabs.resolveTab(params.tabId);
+      const tab = await NS.tabs.resolveUnfreezable(params);
       try {
         await chrome.tabs.update(tab.id, { url });
       } catch (e) {
@@ -111,20 +111,20 @@
 
     go_back: async (params) => {
       const timeoutMs = U.optInt(params, 'timeoutMs', 15000);
-      const tab = await NS.tabs.resolveTab(params.tabId);
+      const tab = await NS.tabs.resolveUnfreezable(params);
       return NS.tabs.goDirection(tab.id, 'back', timeoutMs);
     },
 
     go_forward: async (params) => {
       const timeoutMs = U.optInt(params, 'timeoutMs', 15000);
-      const tab = await NS.tabs.resolveTab(params.tabId);
+      const tab = await NS.tabs.resolveUnfreezable(params);
       return NS.tabs.goDirection(tab.id, 'forward', timeoutMs);
     },
 
     reload: async (params) => {
       const bypassCache = U.optBool(params, 'bypassCache', false);
       const timeoutMs = U.optInt(params, 'timeoutMs', 30000);
-      const tab = await NS.tabs.resolveTab(params.tabId);
+      const tab = await NS.tabs.resolveUnfreezable(params);
       return NS.tabs.navigateAndWait(
         tab.id,
         () => chrome.tabs.reload(tab.id, { bypassCache }),
@@ -156,7 +156,7 @@
         state = params.state;
       }
       const timeoutMs = U.optInt(params, 'timeoutMs', 10000);
-      const tab = await NS.tabs.resolveTab(params.tabId);
+      const tab = await NS.tabs.resolveUnfreezable(params);
 
       if (networkIdle) {
         // Network-idle is observed from the service worker over CDP: the
@@ -202,7 +202,7 @@
     snapshot: async (params) => {
       const maxElements = U.optInt(params, 'maxElements', 800);
       const viewportOnly = U.optBool(params, 'viewportOnly', false);
-      const tab = await NS.tabs.resolveTab(params.tabId);
+      const tab = await NS.tabs.resolveUnfreezable(params);
       // combinedSnapshot queries every frame and renumbers refs globally
       // (per-frame rects stay frame-relative; truncated if any frame was).
       const res = await NS.contentBridge.combinedSnapshot(tab.id, {
@@ -220,7 +220,7 @@
 
     get_page_text: async (params) => {
       const maxChars = U.optInt(params, 'maxChars', 20000);
-      const tab = await NS.tabs.resolveTab(params.tabId);
+      const tab = await NS.tabs.resolveUnfreezable(params);
       const res = await NS.contentBridge.askTab(tab.id, {
         type: 'get_page_text', maxChars
       });
@@ -234,13 +234,13 @@
     },
 
     get_links: async (params) => {
-      const tab = await NS.tabs.resolveTab(params.tabId);
+      const tab = await NS.tabs.resolveUnfreezable(params);
       const res = await NS.contentBridge.askTab(tab.id, { type: 'get_links' });
       return { links: res.links || [] };
     },
 
     screenshot: async (params) => {
-      const tab = await NS.tabs.resolveTab(params.tabId);
+      const tab = await NS.tabs.resolveUnfreezable(params);
       return NS.screenshot.screenshot(tab, params);
     },
 
@@ -288,18 +288,18 @@
     }),
 
     get_console_logs: async (params) => {
-      const tab = await NS.tabs.resolveTab(params.tabId);
+      const tab = await NS.tabs.resolveUnfreezable(params);
       return NS.consoleBuffer.getLogs(tab, params);
     },
 
     get_network_requests: async (params) => {
-      const tab = await NS.tabs.resolveTab(params.tabId);
+      const tab = await NS.tabs.resolveUnfreezable(params);
       await NS.cdp.ensureCapture(tab.id);
       return NS.cdp.getRequests(tab.id, params);
     },
 
     stop_network_capture: async (params) => {
-      const tab = await NS.tabs.resolveTab(params.tabId);
+      const tab = await NS.tabs.resolveUnfreezable(params);
       // Releases every capture session that holds the debugger for this tab
       // (network capture, and a watch_console cdp:true console capture).
       const hadConsole = NS.cdp.consoleWatchActive(tab.id);
@@ -310,7 +310,7 @@
     },
 
     get_cookies: async (params) => {
-      const tab = await NS.tabs.resolveTab(params.tabId);
+      const tab = await NS.tabs.resolveUnfreezable(params);
       const url = typeof params.url === 'string' && params.url ? params.url : (tab.url || '');
       return NS.cdp.getCookies(tab.id, url);
     },
@@ -318,13 +318,13 @@
     // ---- native dialogs (lib/dialogs.js) -------------------------------------
 
     get_dialog: async (params) => {
-      const tab = await NS.tabs.resolveTab(params.tabId);
+      const tab = await NS.tabs.resolveUnfreezable(params);
       const w = await NS.dialogs.ensureWatch(tab.id);
       return { watched: true, open: !!w.dialog, dialog: w.dialog || null };
     },
 
     handle_dialog: async (params) => {
-      const tab = await NS.tabs.resolveTab(params.tabId);
+      const tab = await NS.tabs.resolveUnfreezable(params);
       const accept = U.optBool(params, 'accept', true);
       const promptText = U.optStr(params, 'promptText', undefined);
       return NS.dialogs.handleDialog(tab.id, accept, promptText, params.autoDismiss);
@@ -428,18 +428,18 @@
 
     // ---- §7 WebMCP ----------------------------------------------------------
     list_webmcp_tools: async (params) => {
-      const tab = await NS.tabs.resolveTab(params.tabId);
+      const tab = await NS.tabs.resolveUnfreezable(params);
       return NS.webmcp.listTools(tab, params);
     },
 
     call_webmcp_tool: async (params) => {
-      const tab = await NS.tabs.resolveTab(params.tabId);
+      const tab = await NS.tabs.resolveUnfreezable(params);
       return NS.webmcp.callTool(tab, params);
     }
   };
 
   function withTab(params, handler) {
-    return NS.tabs.resolveTab(params ? params.tabId : undefined).then(
+    return NS.tabs.resolveUnfreezable(params).then(
       (tab) => handler(tab, params || {})
     );
   }
