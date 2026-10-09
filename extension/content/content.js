@@ -100,9 +100,8 @@
   function flushLogs() {
     try {
       // Context invalidated (extension reloaded while this page stayed open):
-      // every sendMessage would throw synchronously — stop the timer for good
-      // instead of burning the main thread 5×/s (this alone measured 57% CPU
-      // on a heavy page in a real DevTools trace).
+      // every sendMessage would throw synchronously — stop the timer instead
+      // of retrying 5×/s forever.
       if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.id) {
         clearInterval(flushTimer);
         return;
