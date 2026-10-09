@@ -99,6 +99,14 @@
 
   function flushLogs() {
     try {
+      // Context invalidated (extension reloaded while this page stayed open):
+      // every sendMessage would throw synchronously — stop the timer for good
+      // instead of burning the main thread 5×/s (this alone measured 57% CPU
+      // on a heavy page in a real DevTools trace).
+      if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.id) {
+        clearInterval(flushTimer);
+        return;
+      }
       const now = Date.now();
       const elapsed = now - logLastRefill;
       if (elapsed > 0) {
@@ -109,18 +117,20 @@
       const n = Math.min(logQueue.length, Math.floor(logTokens), 20);
       logTokens -= n;
       const batch = logQueue.splice(0, n);
-      for (const entry of batch) {
-        try {
-          chrome.runtime.sendMessage(
-            { type: 'console', level: entry.level, text: entry.text },
-            () => { void chrome.runtime.lastError; }
-          );
-        } catch (e) { /* worker may be gone */ }
+      // One IPC per flush, not one per entry — sendMessage is expensive and
+      // the batch is what the consumer wants anyway.
+      try {
+        chrome.runtime.sendMessage(
+          { type: 'console_batch', entries: batch },
+          () => { void chrome.runtime.lastError; }
+        );
+      } catch (e) {
+        // Worker gone mid-call: drop the batch, keep the timer (transient).
       }
     } catch (e) { /* never break the page */ }
   }
 
-  setInterval(flushLogs, 200);
+  const flushTimer = setInterval(flushLogs, 200);
   window.addEventListener('beforeunload', flushLogs);
 
   for (const level of CONSOLE_LEVELS) {
