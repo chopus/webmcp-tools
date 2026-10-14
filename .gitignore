@@ -18,3 +18,6 @@ reports/
 webmcp-shot-*.png
 webmcp-shot-*.jpg
 verify-*.jpg
+
+# personal repo-location marker for skill installs outside the repo
+.agents/skills/webmcp-browser/repo-root.txt

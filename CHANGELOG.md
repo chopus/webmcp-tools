@@ -3,6 +3,12 @@
 All notable changes to this project are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- The skill CLI (`webmcp-call.mjs`) works from skill installs outside the repository again. The repo is located via `WEBMCP_REPO_ROOT`, then a personal `repo-root.txt` marker at the skill root (survives syncing `scripts/` from upstream), then the walk-up from the script's own location; only the walk-up existed before, so user-level installs resolved the repo to the home directory and cold starts failed with a misleading "Build it first" error (`WEBMCP_REPO_ROOT` support had been lost in the 0.3.2 auth rewrite). When no candidate has a built `server/dist`, the CLI now fails fast listing the candidates tried and the fix instead of spawning and waiting out a 30 s timeout; a checkout found without `server/dist/index.js` is told to run `npm run build`.
+
 ## [0.3.3] - 2026-10-04
 
 ### Fixed

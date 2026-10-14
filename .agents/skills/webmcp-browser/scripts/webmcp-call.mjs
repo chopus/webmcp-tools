@@ -2,7 +2,8 @@
 /**
  * webmcp-call.mjs — call one webmcp-tools MCP tool from the command line.
  *
- * Usage (from anywhere; server found relative to this script):
+ * Usage (from anywhere; the repo is found via WEBMCP_REPO_ROOT, a
+ * repo-root.txt marker next to the skill, or this script's own location):
  *   node webmcp-call.mjs <tool> [jsonArgs|-]  call a tool, print its text result
  *   node webmcp-call.mjs status               get_browser_info, pretty-printed
  *   node webmcp-call.mjs tools                list tool names
@@ -26,17 +27,61 @@
  * the path is printed.
  *
  * Env: WEBMCP_HTTP_URL — full endpoint URL (default http://127.0.0.1:8930/mcp).
+ *      WEBMCP_REPO_ROOT — webmcp-tools checkout to run when nothing listens
+ *      (default: first valid path in repo-root.txt at the skill root, else
+ *      the checkout this script lives in).
  */
 import { spawn } from "node:child_process";
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
-// <repo>/.agents/skills/webmcp-browser/scripts -> repo root
-const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..", "..", "..");
-const SERVER_ENTRY = path.join(REPO_ROOT, "server", "dist", "index.js");
+// Where the webmcp-tools repo lives, tried in order:
+//  1. WEBMCP_REPO_ROOT env var
+//  2. one path per line in repo-root.txt at the skill root — installs that
+//     live outside the repo record theirs there; the file is personal (not
+//     committed), so syncing scripts/ from upstream never clobbers it
+//  3. walk-up from this script (<repo>/.agents/skills/webmcp-browser/scripts)
+// A candidate only counts when <repo>/server/dist/index.js exists.
+const MARKER_FILE = path.join(SCRIPT_DIR, "..", "repo-root.txt");
+const WALK_UP_ROOT = path.resolve(SCRIPT_DIR, "..", "..", "..", "..");
+
+function repoRootCandidates() {
+  const candidates = [];
+  if (process.env.WEBMCP_REPO_ROOT) candidates.push(process.env.WEBMCP_REPO_ROOT.trim());
+  try {
+    for (const line of readFileSync(MARKER_FILE, "utf8").split(/\r?\n/)) {
+      if (line.trim()) candidates.push(line.trim());
+    }
+  } catch {
+    /* no marker file */
+  }
+  candidates.push(WALK_UP_ROOT);
+  return candidates;
+}
+
+/** Repo root with a built server; throws a named cause + fix otherwise. */
+function resolveRepoRoot() {
+  const candidates = repoRootCandidates();
+  for (const root of candidates) {
+    if (existsSync(path.join(root, "server", "dist", "index.js"))) return root;
+  }
+  for (const root of candidates) {
+    if (existsSync(path.join(root, "server", "package.json"))) {
+      throw new Error(
+        `webmcp-tools checkout found at ${root}, but server/dist/index.js is ` +
+          `missing — build it first: cd ${root} && npm run build`,
+      );
+    }
+  }
+  throw new Error(
+    `could not locate the webmcp-tools repo (tried: ${candidates.join("; ")}). ` +
+      `Fix: set WEBMCP_REPO_ROOT to the checkout path, or create ${MARKER_FILE} ` +
+      `containing the checkout path.`,
+  );
+}
 const ENDPOINT = process.env.WEBMCP_HTTP_URL || "http://127.0.0.1:8930/mcp";
 const SESSION_FILE = path.join(tmpdir(), "webmcp-skill-session.json");
 const PID_FILE = path.join(tmpdir(), "webmcp-skill-server.pid");
@@ -110,8 +155,10 @@ async function endpointUp() {
 
 async function ensureServer() {
   if (await endpointUp()) return { startedByUs: false };
-  const child = spawn(process.execPath, [SERVER_ENTRY, "--http"], {
-    cwd: REPO_ROOT,
+  const repoRoot = resolveRepoRoot();
+  const serverEntry = path.join(repoRoot, "server", "dist", "index.js");
+  const child = spawn(process.execPath, [serverEntry, "--http"], {
+    cwd: repoRoot,
     stdio: "ignore",
     detached: true,
     windowsHide: true,
@@ -119,12 +166,12 @@ async function ensureServer() {
   child.unref();
   writeFileSync(PID_FILE, String(child.pid));
   for (let i = 0; i < 40; i++) {
-    if (await endpointUp()) return { startedByUs: true };
+    if (await endpointUp()) return { startedByUs: true, serverEntry };
     await sleep(500);
   }
   throw new Error(
-    `the webmcp server did not come up at ${ENDPOINT}. ` +
-      `Build it first: npm run build (entry: ${SERVER_ENTRY})`,
+    `the webmcp server did not come up at ${ENDPOINT} (entry: ${serverEntry}). ` +
+      `Run it in the foreground to see why: node ${serverEntry} --http`,
   );
 }
 
@@ -423,9 +470,9 @@ async function main() {
     return;
   }
 
-  const { startedByUs } = await ensureServer();
+  const { startedByUs, serverEntry } = await ensureServer();
   if (startedByUs) {
-    console.error(`[webmcp-call] started ${SERVER_ENTRY} --http (stop with: webmcp-call.mjs stop)`);
+    console.error(`[webmcp-call] started ${serverEntry} --http (stop with: webmcp-call.mjs stop)`);
   }
 
   if (command === "tools") {

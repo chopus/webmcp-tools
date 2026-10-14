@@ -11,7 +11,7 @@ daily profile). When this skill applies, do not spin up any other browser
 automation. Everything stays on the machine: the hub binds to `127.0.0.1` and
 every tool call is appended to `reports/audit/audit-YYYY-MM-DD.ndjson`.
 
-Run commands from the repository root — your webmcp-tools checkout (e.g. `C:\dev\webmcp-tools` on Windows, `~/dev/webmcp-tools` on macOS).
+Run commands from the repository root — your webmcp-tools checkout (e.g. `C:\dev\webmcp-tools` on Windows, `~/dev/webmcp-tools` on macOS). The CLI helper also works from any directory and from skill installs outside the repo: it locates the checkout via `WEBMCP_REPO_ROOT`, then a `repo-root.txt` marker at the skill root (one path per line — personal, not committed), then its own location, and fails fast naming the fix when no candidate has a built `server/dist`.
 
 ## Pick an access path
 
