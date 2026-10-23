@@ -5,10 +5,59 @@ import { FrameDecoder, LineDecoder, encodeFrame } from "./framing.js";
 import { defaultHubFilePath } from "./hub.js";
 import { log } from "./log.js";
 
-const FILE_ATTEMPTS = 6;
 const RETRY_DELAY_MS = 500;
 const CONNECT_TIMEOUT_MS = 1000;
 const DRAIN_TIMEOUT_MS = 500;
+
+/**
+ * Total window a freshly spawned relay keeps hunting for the hub (file read +
+ * connect attempts). Long enough that a hub restarting right after the old one
+ * died is caught mid-hunt, which reconnects without any extension-side timer.
+ */
+export const HUNT_MS = 30_000;
+
+/**
+ * Pipe-keepalive signal to the extension service worker. Every frame the SW
+ * receives resets Chrome's ~30 s MV3 idle timeout, so heartbeats keep the
+ * worker (and its reconnect backoff chain) alive through hub outages, and let
+ * it detect a half-dead port via native-port.js isResponsive().
+ */
+export const HEARTBEAT_MS = 10_000;
+
+export type RelayPhase = "hunt" | "pump";
+
+/**
+ * Chrome-side frame sink (native messaging over stdout). `write` returns false
+ * on backpressure exactly like a Node stream; consumers must then wait for
+ * `onceDrain` before expecting further writes to be accepted. Tests inject a
+ * controllable sink; production uses stdout.
+ */
+export interface FrameSink {
+  write(frame: Buffer): boolean;
+  onceDrain(listener: () => void): void;
+}
+
+export function stdoutSink(): FrameSink {
+  return {
+    write(frame) {
+      try {
+        return process.stdout.write(frame);
+      } catch {
+        return false;
+      }
+    },
+    onceDrain(listener) {
+      process.stdout.once("drain", listener);
+    },
+  };
+}
+
+export interface RelayOptions {
+  huntMs?: number;
+  heartbeatMs?: number;
+  /** Frame sink (tests inject a collector); defaults to stdout. */
+  sink?: FrameSink;
+}
 
 interface HubEndpoint {
   port: number;
@@ -59,36 +108,83 @@ function tryConnect(endpoint: HubEndpoint): Promise<net.Socket | null> {
   });
 }
 
+export interface Heartbeat {
+  stop(): void;
+  setPhase(phase: RelayPhase): void;
+}
+
+/** Emit relayHeartbeat frames until stopped. Never throws into the caller. */
+export function startHeartbeat(opts: RelayOptions = {}): Heartbeat {
+  const interval = opts.heartbeatMs ?? HEARTBEAT_MS;
+  const sink = opts.sink ?? stdoutSink();
+  let phase: RelayPhase = "hunt";
+  let stopped = false;
+  const timer = setInterval(() => {
+    if (stopped) return;
+    sink.write(encodeFrame({ v: 1, kind: "event", event: "relayHeartbeat", data: { phase } }));
+  }, interval);
+  timer.unref?.();
+  return {
+    stop() {
+      stopped = true;
+      clearInterval(timer);
+    },
+    setPhase(next: RelayPhase) {
+      phase = next;
+    },
+  };
+}
+
+export type RelayOutcome = "pumped" | "hub-not-found";
+
 /**
- * Relay mode: bridge Chrome native-messaging frames on stdio to NDJSON lines
- * on the hub TCP socket. Transparent — payloads are forwarded verbatim
- * (parsed + re-serialized so every frame/line carries exactly one JSON
- * object). Resolves only when either side closes; exits 0 in all cases
- * (Chrome respawns the host when the extension retries connectNative).
+ * Relay main loop without process.exit (so tests can drive it): bridge Chrome
+ * native-messaging frames on stdio to NDJSON lines on the hub TCP socket.
+ * Transparent — payloads are forwarded verbatim (parsed + re-serialized so
+ * every frame/line carries exactly one JSON object). Resolves when either
+ * side closes or the hunt window passes without a hub.
  */
-export async function runRelay(hubFilePath: string = defaultHubFilePath()): Promise<void> {
-  for (let attempt = 1; attempt <= FILE_ATTEMPTS; attempt++) {
+export async function relayMain(
+  hubFilePath: string = defaultHubFilePath(),
+  opts: RelayOptions = {},
+): Promise<RelayOutcome> {
+  const huntMs = opts.huntMs ?? HUNT_MS;
+  const heartbeat = startHeartbeat(opts);
+  const deadline = Date.now() + huntMs;
+  while (Date.now() < deadline) {
     const endpoint = readHubFile(hubFilePath);
     if (endpoint) {
       const socket = await tryConnect(endpoint);
       if (socket) {
         log(`relay: connected to hub on 127.0.0.1:${endpoint.port}`);
-        await pump(socket, endpoint);
+        heartbeat.setPhase("pump");
+        await pump(socket, endpoint, opts);
+        heartbeat.stop();
         await drainStdout();
-        process.exit(0);
-        return;
+        return "pumped";
       }
     }
-    if (attempt < FILE_ATTEMPTS) {
-      await sleep(RETRY_DELAY_MS);
-    }
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    // Sleep out short remainders too: staying alive for the whole window is
+    // the point — heartbeats keep the extension's service worker alive.
+    await sleep(Math.min(RETRY_DELAY_MS, remaining));
   }
-  // Hub not reachable. Exit quietly (code 0): Chrome will respawn us when the
-  // extension retries connectNative().
+  heartbeat.stop();
+  return "hub-not-found";
+}
+
+/**
+ * Relay mode entry point. Always exits 0: Chrome respawns the host when the
+ * extension retries connectNative().
+ */
+export async function runRelay(hubFilePath: string = defaultHubFilePath()): Promise<void> {
+  await relayMain(hubFilePath);
   process.exit(0);
 }
 
-function pump(socket: net.Socket, endpoint: HubEndpoint): Promise<void> {
+function pump(socket: net.Socket, endpoint: HubEndpoint, opts: RelayOptions): Promise<void> {
+  const sink = opts.sink ?? stdoutSink();
   return new Promise((resolve) => {
     const stdinDecoder = new FrameDecoder();
     const socketDecoder = new LineDecoder();
@@ -136,14 +232,17 @@ function pump(socket: net.Socket, endpoint: HubEndpoint): Promise<void> {
           log("relay: ignoring non-JSON hub line");
           continue;
         }
-        const frame = encodeFrame(message);
-        if (!process.stdout.write(frame)) {
+        const ok = sink.write(encodeFrame(message));
+        if (!ok) {
+          // Chrome is not keeping up: stop reading the hub until the Chrome
+          // side drains (NOT the socket's own drain — that is the opposite
+          // direction and would wedge the pipe permanently).
           socket.pause();
-          process.stdout.once("drain", () => socket.resume());
+          sink.onceDrain(() => socket.resume());
         }
       }
     });
-    socket.on("error", (error) => {
+    socket.on("error", (error: Error) => {
       log(`relay: hub socket error: ${error.message}`);
       finish();
     });

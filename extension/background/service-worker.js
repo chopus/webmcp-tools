@@ -50,14 +50,21 @@ WMCP.control.init();
 // MV3 can SUSPEND the service worker mid-backoff, which would stall the
 // reconnect forever (e.g. after the MCP server restarts with a new hub). A
 // periodic alarm wakes the worker to retry the native connection even when
-// no other event does. periodInMinutes 0.5 = worst-case ~30 s reconnect.
+// no other event does. periodInMinutes 0.5 = worst-case ~30 s reconnect for
+// a missing port; a silently stale port recycles within ~75 s (45 s
+// isResponsive threshold + the next alarm tick).
+// The relay's 10 s heartbeats are the primary defense (they keep the worker
+// alive so the backoff chain survives); this alarm is the net below them.
 // The retry is gated on the kill switch: no attempts while disabled.
 try {
   chrome.alarms.create('webmcp-reconnect', { periodInMinutes: 0.5 });
   chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name !== 'webmcp-reconnect') return;
     WMCP.control.isEnabled().then((ok) => {
-      if (ok && !WMCP.nativePort.isConnected()) {
+      // Recycle when the port is gone OR stale: a port object can outlive
+      // its pipe (onDisconnect is not guaranteed), and isResponsive() sees
+      // that through the relay's heartbeats.
+      if (ok && !(WMCP.nativePort.isConnected() && WMCP.nativePort.isResponsive())) {
         WMCP.nativePort.connect();
       }
     });

@@ -5,6 +5,8 @@
  * keeps the port open (which keeps the MV3 service worker alive — requires
  * Chrome >= 116), reconnects with backoff when the host/server dies, and
  * sends the `extensionHello` event on every (re)connect per PROTOCOL.md.
+ * The relay heartbeats every 10 s; that traffic keeps the worker alive
+ * through hub outages and feeds isResponsive() for stale-port detection.
  */
 (function (global) {
   'use strict';
@@ -15,6 +17,7 @@
   const STABLE_AFTER_MS = 5000; // connection considered healthy after this long
 
   let port = null;
+  let lastMessageAt = 0; // last inbound pipe traffic (hub frames or relay heartbeats)
   let backoffIdx = 0;
   let reconnectTimer = null;
   let stableTimer = null;
@@ -73,6 +76,7 @@
 
   function onConnected() {
     backoffIdx = 0;
+    lastMessageAt = Date.now(); // grace until the first relayHeartbeat arrives
     // Mark the connection stable after a short delay so immediate-failure
     // reconnects still back off (reset happens on first message too).
     clearTimeout(stableTimer);
@@ -146,8 +150,19 @@
 
   function onMessage(msg) {
     try {
-      backoffIdx = 0; // any traffic proves the pipe is alive
+      lastMessageAt = Date.now();
       if (!msg || typeof msg !== 'object') return;
+      // Pipe-liveness signal from the relay (every 10 s, hunt and pump
+      // phases). Consumed here: it exists to feed isResponsive() and to reset
+      // Chrome's service-worker idle timeout, not to reach the hub. Only a
+      // pump-phase heartbeat proves an end-to-end connection — a hunt-phase
+      // one means the relay is still looking for the hub, so it must not
+      // reset the reconnect backoff.
+      if (msg.kind === 'event' && msg.event === 'relayHeartbeat') {
+        if (msg.data && msg.data.phase === 'pump') backoffIdx = 0;
+        return;
+      }
+      backoffIdx = 0; // any other traffic proves the pipe is alive
       if (msg.kind === 'request' && (typeof msg.id === 'number')) {
         handleRequest(msg);
       } else if (msg.kind === 'hello' || msg.kind === 'event') {
@@ -207,6 +222,16 @@
     },
     isConnected() {
       return !!port;
+    },
+    /**
+     * True when the pipe carried traffic recently (the relay heartbeats every
+     * 10 s). A port object alone can outlive its pipe — onDisconnect is not
+     * guaranteed to fire on every death — and a stale `!!port` would suppress
+     * the alarm-driven reconnect forever.
+     */
+    isResponsive(maxAgeMs) {
+      const max = typeof maxAgeMs === 'number' ? maxAgeMs : 45000;
+      return !!port && Date.now() - lastMessageAt <= max;
     },
     /** Register the dispatcher for `{kind:"request"}` messages. */
     onRequest(handler) {

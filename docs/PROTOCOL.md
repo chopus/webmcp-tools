@@ -13,7 +13,9 @@ MCP client ⟷ (stdio, JSON-RPC) ⟷ MCP server/hub ⟷ (TCP 127.0.0.1, NDJSON) 
 
 The **relay is transparent**: it forwards identical JSON payloads between the TCP socket
 (newline-delimited) and the native-messaging stdio frames. Only hub and extension
-produce/consume messages.
+produce/consume protocol messages — the relay's one exception is the
+`relayHeartbeat` frame it emits toward the extension itself (never forwarded to
+the hub; see "Relay liveness" under Handshake / discovery).
 
 ## Envelope
 
@@ -45,7 +47,9 @@ Every message is a single JSON object, one per TCP line / native frame:
 
 1. The hub binds `127.0.0.1` on an ephemeral port and writes
    `os.tmpdir()/webmcp-tools-hub.json` → `{ "port": 0, "token": "<random hex>" }`.
-   (Owner-only permissions; removed on shutdown.)
+   (Owner-only permissions; removed on shutdown, and only when the file still
+   describes this hub — a newer hub may have taken the file over
+   (last-writer-wins), and its exit must not be able to strand the running one.)
 2. The relay reads that file, connects, then immediately sends:
    `{ "v":1, "kind":"hello", "who":"relay", "token":"<hex>" }`.
    An invalid/missing token → hub closes the socket. Valid → hub replies
@@ -70,6 +74,18 @@ The hub keeps one connection per `instanceId`:
 
 The extension keeps the native port open (keeps the MV3 service worker alive) and
 reconnects with backoff (1s, 2s, 5s, 10s… max 30s) if the relay/server dies.
+
+**Relay liveness.** On spawn the relay hunts for the hub discovery file
+for up to 30 s (retry ~0.5 s) instead of giving up after ~3 s, and emits
+`{ "v":1, "kind":"event", "event":"relayHeartbeat", "data": { "phase": "hunt" | "pump" } }`
+to the extension every 10 s for its whole lifetime. The heartbeats never reach
+the hub. The extension consumes them to (a) keep the MV3 service worker alive
+through hub outages — every received frame resets Chrome's ~30 s idle timeout,
+so the reconnect backoff chain survives suspension — and (b) detect a half-dead
+port: `isConnected()` is only `!!port`, but the reconnect alarm now also requires
+`isResponsive()` (traffic within the last 45 s) before trusting a port object.
+Only `pump`-phase heartbeats reset the extension's backoff (they prove an
+end-to-end connection); `hunt`-phase ones leave it escalating.
 
 ## Tool matrix
 
