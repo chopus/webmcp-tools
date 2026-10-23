@@ -1,6 +1,6 @@
 import * as net from "node:net";
 import { randomBytes } from "node:crypto";
-import { rmSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { LineDecoder } from "./framing.js";
@@ -128,6 +128,13 @@ export class Hub implements HubApi {
         this.port = address.port;
         this.server = server;
         try {
+          const previous = this.readDiscoveryFile();
+          if (previous) {
+            this.logFn(
+              `hub: replacing existing discovery file (port ${previous.port}) — ` +
+                "another hub may be running (last-writer-wins)",
+            );
+          }
           writeFileSync(this.filePath, JSON.stringify({ port: this.port, token: this.token }), {
             mode: 0o600,
           });
@@ -201,7 +208,12 @@ export class Hub implements HubApi {
     if (this.closed) return;
     this.closed = true;
     try {
-      rmSync(this.filePath, { force: true });
+      // Ownership check: a newer hub may have taken over the discovery file
+      // (last-writer-wins) — deleting it here would strand a running hub.
+      const owner = this.readDiscoveryFile();
+      if (owner && owner.port === this.port && owner.token === this.token) {
+        rmSync(this.filePath, { force: true });
+      }
     } catch {
       // best effort
     }
@@ -393,6 +405,22 @@ export class Hub implements HubApi {
     this.instances.set(instanceId, { socket: state.socket, info });
     state.instanceId = instanceId;
     this.activeId = instanceId;
+  }
+
+  /** Parsed discovery file, or null when missing/unreadable/malformed. */
+  private readDiscoveryFile(): { port: number; token: string } | null {
+    try {
+      const parsed = JSON.parse(readFileSync(this.filePath, "utf8")) as {
+        port?: unknown;
+        token?: unknown;
+      };
+      if (typeof parsed.port === "number" && typeof parsed.token === "string") {
+        return { port: parsed.port, token: parsed.token };
+      }
+    } catch {
+      // missing or unreadable
+    }
+    return null;
   }
 
   private activeEntry(): InstanceEntry | undefined {

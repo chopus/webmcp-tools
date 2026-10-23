@@ -33,6 +33,21 @@ describe("hub", () => {
     expect(existsSync(hubFile)).toBe(false);
   });
 
+  it("does not delete the discovery file after another hub took it over", async () => {
+    // Second hub on the same discovery file (last-writer-wins, documented).
+    const replacement = new Hub({ filePath: hubFile, log: () => {} });
+    await replacement.listen();
+    expect(replacement.port).not.toBe(hub.port);
+
+    await hub.close(); // the first hub exits — must not strand the replacement
+    expect(existsSync(hubFile)).toBe(true);
+    const discovery = JSON.parse(readFileSync(hubFile, "utf8")) as { port: number };
+    expect(discovery.port).toBe(replacement.port);
+
+    await replacement.close(); // the owner's exit still cleans up
+    expect(existsSync(hubFile)).toBe(false);
+  });
+
   it("destroys a connection with a wrong token", async () => {
     const relay = new FakeRelay(hub.port);
     relay.send({ v: 1, kind: "hello", who: "relay", token: "wrong-token" });
